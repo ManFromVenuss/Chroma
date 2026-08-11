@@ -32,14 +32,15 @@ local CFG = {
     STAR_TOP_BIAS = 2.2,    -- higher = more tightly clustered at the top
     STAR_SPAN = 0.55,       -- stars occupy this fraction of window height
     STAR_MAX_SIZE = 3,
-    BACKDROP = "chroma_bd_night.png",
+    BACKDROP = "rbxassetid://122415002143640",   -- uploaded night backdrop
     ACCENT = Color3.fromRGB(23, 184, 166),
 }
 --==================================================
 
 local IMG_ASPECT = 1024 / 576
 local ACC = CFG.ACCENT
-local asset = getcustomasset(CFG.BACKDROP)
+-- accept either an uploaded decal id or a local workspace file
+local asset = CFG.BACKDROP:match("^rbxassetid://") and CFG.BACKDROP or getcustomasset(CFG.BACKDROP)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "chromaProbe"
