@@ -27,16 +27,6 @@ function M.new(root, row, opts)
     stroke.Parent = box
     theme:bind(stroke, "Color", "FieldBorder")
 
-    -- A transparent button over the whole row: a 7px target is unusable.
-    local hit = Instance.new("TextButton")
-    hit.Name = "hit"
-    hit.Size = UDim2.fromScale(1, 1)
-    hit.BackgroundTransparency = 1
-    hit.Text = ""
-    hit.AutoButtonColor = false
-    hit.ZIndex = 3
-    hit.Parent = row.frame
-
     local self = setmetatable({
         _root = root,
         _row = row,
@@ -49,9 +39,12 @@ function M.new(root, row, opts)
         _value = false,
     }, Toggle)
 
-    root:keep(hit.Activated:Connect(function()
+    -- Click anywhere on the row: a 7px target is unusable. The row owns the
+    -- hit button (and its layering against the help icon), so ask for it
+    -- rather than parenting one into row.frame ourselves.
+    row.onActivated(function()
         self:Set(not self._value)
-    end))
+    end)
 
     self:Set(opts.Default == true, true)
     return self

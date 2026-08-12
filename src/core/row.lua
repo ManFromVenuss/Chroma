@@ -75,6 +75,8 @@ function M.new(root, parent, opts, fullWidth)
         icon.Font = Enum.Font.Ubuntu
         icon.TextSize = 10
         icon.Text = "?"
+        -- Above the hit button (2) so hover/tooltips still resolve against it.
+        icon.ZIndex = 4
         icon.Parent = row
         theme:bind(icon, "TextColor3", "TextDim")
 
@@ -114,8 +116,29 @@ function M.new(root, parent, opts, fullWidth)
         control.Size = UDim2.new(0, M.CONTROL_WIDTH, 1, 0)
         control.BackgroundTransparency = 1
         control.BorderSizePixel = 0
+        -- Above the hit button (2) so widgets inside it (a slider track, for
+        -- instance) receive their own input instead of the row swallowing it.
+        control.ZIndex = 3
         control.Parent = row
     end
+
+    -- A transparent, full-row click target. Widgets that want "click anywhere
+    -- on the row" ask for it via onActivated() below rather than parenting
+    -- their own button into row.frame -- every widget doing that would defeat
+    -- the boundary the control slot exists to enforce. It sits ABOVE the
+    -- label but BELOW the help icon and control slot: ZIndex 2, deliberately
+    -- between icon (4) and control (3) on one side and the label's default of
+    -- 1 on the other. Getting this ordering wrong is exactly how the row used
+    -- to swallow hover input meant for the (?) icon and silently kill
+    -- tooltips -- do not "fix" this back to matching or exceeding 3/4.
+    local hit = Instance.new("TextButton")
+    hit.Name = "hit"
+    hit.Size = UDim2.fromScale(1, 1)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.AutoButtonColor = false
+    hit.ZIndex = 2
+    hit.Parent = row
 
     local api = { frame = row, label = label, icon = icon, control = control }
 
@@ -124,6 +147,14 @@ function M.new(root, parent, opts, fullWidth)
     -- the control-slot boundary exists to prevent.
     function api.setHeight(px)
         row.Size = UDim2.new(1, 0, 0, px)
+    end
+
+    -- Widgets that want "click anywhere on the row" ask for it here rather than
+    -- parenting a button into row.frame themselves. The row owns the layering:
+    -- the hit button deliberately sits BELOW the help icon and the control
+    -- slot, or it would swallow their input and silently kill tooltips.
+    function api.onActivated(fn)
+        root:keep(hit.Activated:Connect(fn))
     end
 
     return api
