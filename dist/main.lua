@@ -1089,7 +1089,13 @@ function M.new(root, opts)
 
     local body = Instance.new("Frame")
     body.Name = "body"
-    body.Size = UDim2.fromScale(1, 1)
+    -- Inset by 1px on every side. A UIStroke draws OUTWARD from its element's
+    -- bounds, and `contents` clips its descendants, so a body filling contents
+    -- exactly has its stroke drawn straight into the clipped region and cut
+    -- away -- invisible. The 1px margin is exactly the thickness of the stroke,
+    -- so it reads as an outline on the window edge with no visible gap.
+    body.Size = UDim2.new(1, -2, 1, -2)
+    body.Position = UDim2.fromOffset(1, 1)
     -- Opaque: the backdrop fills it. Translucency here would show the game world
     -- behind the forest, which reads as a bug.
     body.BackgroundTransparency = 0
