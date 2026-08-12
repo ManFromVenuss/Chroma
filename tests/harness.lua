@@ -150,4 +150,8 @@ function M.assertFalse(v)
     if v then fail("expected falsy, got " .. tostring(v)) end
 end
 
+if _G.warn == nil then
+    _G.warn = function(...) io.stderr:write("[warn] ", tostring((...)), "\n") end
+end
+
 return M
