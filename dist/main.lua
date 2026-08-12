@@ -1122,6 +1122,7 @@ function M.new(root)
         _frame = frame,
         _label = label,
         _timer = nil,
+        _pendingIcon = nil,
         _watch = nil,
         _owner = nil,
     }, Tooltip)
@@ -1143,6 +1144,7 @@ function Tooltip:_hide()
         task.cancel(self._timer)
         self._timer = nil
     end
+    self._pendingIcon = nil
     if self._watch then
         self._watch:Disconnect()
         self._watch = nil
@@ -1189,18 +1191,26 @@ function Tooltip:_show(icon, text)
 end
 
 -- Called by the row builder for every (?) icon that has a description.
+--
+-- The pending timer is tagged with the icon it belongs to (_pendingIcon), and
+-- MouseLeave only tears it down if it's still that icon's timer. This must
+-- not assume any ordering between MouseEnter/MouseLeave firing on different
+-- GuiObjects -- Roblox gives no such guarantee, and a fast sweep across a
+-- column of icons can deliver icon B's Enter before icon A's Leave.
 function Tooltip:attach(icon, text)
     self._root:keep(icon.MouseEnter:Connect(function()
         if self._timer then task.cancel(self._timer) end
+        self._pendingIcon = icon
         self._timer = task.delay(DELAY, function()
             self._timer = nil
+            self._pendingIcon = nil
             if not self._root:isAlive() then return end
             self:_show(icon, text)
         end)
     end))
 
     self._root:keep(icon.MouseLeave:Connect(function()
-        if self._owner == icon or self._timer then self:_hide() end
+        if self._owner == icon or self._pendingIcon == icon then self:_hide() end
     end))
 end
 
