@@ -4,14 +4,14 @@ local h = require("tests.harness")
 return {
     ["shim loads a module"] = function()
         local req = h.makeRequire()
-        local mod = req("util/nothing")
-        h.assertEqual(mod.answer, 42)
+        local Guard = req("util/guard")
+        h.assertTrue(type(Guard.new) == "function")
     end,
 
     ["shim caches modules"] = function()
         local req = h.makeRequire()
-        local a = req("util/nothing")
-        local b = req("util/nothing")
+        local a = req("util/guard")
+        local b = req("util/guard")
         h.assertSame(a, b)
     end,
 
