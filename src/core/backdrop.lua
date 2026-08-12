@@ -127,10 +127,29 @@ function Backdrop:setShift(shift)
 end
 
 function Backdrop:resize(w, h)
+    local prevW, prevH = self._w, self._h
     self._w, self._h = w, h
     local iw, ih, offset = M.computeCover(w, h, self._aspect, self._shift)
     self._image.Size = UDim2.fromOffset(math.ceil(iw), math.ceil(ih))
     self._image.Position = UDim2.new(0.5, 0, 1, math.floor(offset))
+
+    -- AbsoluteSize is (0, 0) until the holder has been rendered at least once,
+    -- so the star pool in M.new is always seeded against zeros. The first real
+    -- resize (called with the holder's actual size) is what actually places
+    -- the stars; reseed them fresh instead of trying to scale up from 0.
+    if prevW == 0 or prevH == 0 then
+        for i = 1, #self._stars do
+            self:_reseed(self._stars[i], true)
+        end
+    else
+        local sx = w / prevW
+        local sy = h / prevH
+        for i = 1, #self._stars do
+            local s = self._stars[i]
+            s.x = s.x * sx
+            s.y = s.y * sy
+        end
+    end
 end
 
 function Backdrop:setPaused(paused)
