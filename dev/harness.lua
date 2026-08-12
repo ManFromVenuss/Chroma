@@ -26,6 +26,59 @@ local Win = Chroma:Window({
     AccentSpeed = 0.15,
 })
 
+--== page 1: sub-tabs, both widget types, descriptions ==--
+local combat = Win:Page({ Name = "Combat" })
+
+local general = combat:Tab("General")
+local gl, gr = general:Column(), general:Column()
+
+local aim = gl:Container("Aimbot")
+aim:Toggle({ Name = "Enabled", Default = true,
+    Description = "Master switch. Hooks __namecall once at load, so toggling only flips a flag." })
+aim:Toggle({ Name = "Silent aim",
+    Description = "Resolves the shot server-side without moving the camera." })
+aim:Slider({ Name = "Field of view", Min = 0, Max = 90, Default = 20, Unit = "°",
+    Description = "Maximum angle from your crosshair that a target can be picked up at." })
+aim:Slider({ Name = "Smoothing", Min = 0, Max = 100, Default = 62 })
+aim:Separator({ Text = "Delays" })
+aim:Slider({ Name = "After kill", Min = 0, Max = 1000, Default = 500, Unit = "ms" })
+
+local target = gr:Container("Target")
+target:Toggle({ Name = "Wall check", Default = true })
+target:Toggle({ Name = "Target walkers" })
+target:Label({ Text = "Walkers are cheap to hit but rarely worth it." })
+target:Slider({ Name = "Max distance", Min = 0, Max = 500, Default = 300 })
+
+local weapons = combat:Tab("Weapons")
+local wl = weapons:Column()
+local pistols = wl:Container("Pistols")
+pistols:Toggle({ Name = "Enabled", Default = true })
+pistols:Slider({ Name = "Hitchance", Min = 0, Max = 100, Default = 62, Unit = "%" })
+
+--== page 2: no tabs, and a deliberately overfilled column to force scrolling ==--
+local visuals = Win:Page({ Name = "Visuals" })
+local vl, vr = visuals:Column(), visuals:Column()
+
+local esp = vl:Container("Players")
+for i = 1, 14 do
+    esp:Toggle({ Name = "Option " .. i, Default = i % 3 == 0,
+        Description = i % 4 == 0 and ("Description for option " .. i ..
+            ", long enough to wrap across more than one line in the tooltip.") or nil })
+end
+
+local world = vr:Container("World")
+world:Toggle({ Name = "Fullbright", Default = true })
+world:Slider({ Name = "Brightness", Min = 0, Max = 10, Default = 2.5, Decimals = 1 })
+world:Separator()
+world:Toggle({ Name = "No fog" })
+
+--== page 3: weighted columns ==--
+local misc = Win:Page({ Name = "Misc" })
+local wide = misc:Column({ Weight = 2 })
+local narrow = misc:Column()
+wide:Container("Wide column"):Label({ Text = "This column has Weight = 2." })
+narrow:Container("Narrow"):Label({ Text = "Weight = 1." })
+
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)
-print("[Chroma dev] window created:", Win ~= nil)
+print("[Chroma dev] pages:", #Win._pages)
