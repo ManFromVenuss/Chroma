@@ -70,11 +70,11 @@ function M.new(root, opts)
     theme:bind(bar, "BackgroundColor3", "TitleBar", "BackgroundTransparency")
     self._bar = bar
 
-    local barStroke = Instance.new("UIStroke")
-    barStroke.Transparency = 0.45
-    barStroke.Thickness = 1
-    barStroke.Parent = bar
-    theme:bind(barStroke, "Color", "Accent")
+    -- Deliberately no UIStroke on the bar. The two gradient hairlines below
+    -- already define its top and bottom edges, and a stroke drew a second,
+    -- fainter accent line immediately beneath the bottom hairline. The bar is a
+    -- floating strip, so leaving its left and right edges unbordered reads fine
+    -- -- the body keeps its own stroke, and that is what outlines the window.
 
     local hair = Instance.new("Frame")
     hair.Name = "hairline"
