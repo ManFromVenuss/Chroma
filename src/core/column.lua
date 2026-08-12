@@ -66,7 +66,9 @@ function M.new(root, parent, opts)
     frame.BackgroundTransparency = 1
     frame.BorderSizePixel = 0
     frame.CanvasSize = UDim2.new()
-    frame.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
+    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- There is no Enum.AutomaticCanvasSize.
+    frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
     frame.ScrollBarThickness = 2
     frame.ScrollingDirection = Enum.ScrollingDirection.Y
     frame.ElasticBehavior = Enum.ElasticBehavior.Never
