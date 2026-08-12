@@ -68,7 +68,6 @@ __modules["core/root"] = function(require)
 -- Owns the ScreenGui, the layer stack, and the single junk list that Unload
 -- walks. No other module cleans up after itself.
 local Theme = require("core/theme")
-local safecall = require("util/safecall")
 
 local Root = {}
 Root.__index = Root
@@ -78,8 +77,8 @@ local function pickParent()
         local ok, hui = pcall(gethui)
         if ok and hui then return hui, "gethui" end
     end
-    local coreGui = game:GetService("CoreGui")
-    if cloneref then
+    local okCoreGui, coreGui = pcall(function() return game:GetService("CoreGui") end)
+    if okCoreGui and cloneref then
         local ok, cloned = pcall(cloneref, coreGui)
         if ok and cloned then return cloned, "cloneref(CoreGui)" end
     end
@@ -87,7 +86,8 @@ local function pickParent()
         return game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
     end)
     if ok and playerGui then return playerGui, "PlayerGui" end
-    return coreGui, "CoreGui"
+    if okCoreGui and coreGui then return coreGui, "CoreGui" end
+    error("chroma: no viable GUI parent (tried gethui, cloneref, PlayerGui, CoreGui)", 0)
 end
 
 local function randomName()
@@ -181,13 +181,16 @@ function Root:_startHeartbeat()
             self.theme:apply()
         end
         if self._onFrame then
-            safecall.call("Root/frame", self._onFrame, dt, clock)
+            -- Internal hook (registered by Chroma's own window module), not a
+            -- consumer callback: let errors propagate instead of swallowing them.
+            self._onFrame(dt, clock)
         end
     end)
     self:keep(conn)
 end
 
 function Root:onFrame(fn)
+    assert(self._onFrame == nil, "chroma: Root:onFrame already registered")
     self._onFrame = fn
 end
 
