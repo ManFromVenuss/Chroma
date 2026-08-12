@@ -9,6 +9,9 @@ local files = {
     "tests.test_theme",
     "tests.test_backdrop",
     "tests.test_cursor",
+    "tests.test_column",
+    "tests.test_tooltip",
+    "tests.test_slider",
 }
 
 local passed, failed = 0, 0
