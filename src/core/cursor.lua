@@ -10,7 +10,10 @@ end
 
 --== Drawing side. Never runs under Lua 5.4. ==--
 
-local UserInputService = game:GetService("UserInputService")
+-- Resolved lazily inside M.new. A module-scope game:GetService() would execute
+-- on require, and this file is required by the Lua 5.4 test harness to reach
+-- hitTest, where the `game` global does not exist.
+local UserInputService
 
 local Cursor = {}
 Cursor.__index = Cursor
@@ -29,6 +32,7 @@ local DEFAULTS = {
 -- pointer. Chroma hides the OS cursor only while that returns true.
 function M.new(root, opts, isOver)
     opts = opts or {}
+    UserInputService = UserInputService or game:GetService("UserInputService")
     local cfg = {}
     for key, value in pairs(DEFAULTS) do
         cfg[key] = opts[key]
