@@ -1881,6 +1881,130 @@ end
 return Signal
 end
 
+__modules["widgets/label"] = function(require)
+-- A single line of static text spanning the whole row.
+--
+-- Deliberately NOT wrappable. A wrapped label under-sizes its parent because
+-- height only re-syncs when TextBounds fires, and inside an auto-sizing
+-- container that clips the entire section. Two lines means two Labels.
+
+local M = {}
+
+-- Declared for the container: a Label has no control, so the row is built
+-- full-width and no control slot is created. A widget must never resize the
+-- row itself -- that is layout, and layout belongs to row.lua.
+M.FullWidth = true
+
+local Label = {}
+Label.__index = Label
+
+function M.new(root, row, opts)
+    local theme = root.theme
+
+    row.label.Text = opts.Text or ""
+    row.label.TextTruncate = Enum.TextTruncate.AtEnd
+    theme:unbind(row.label)
+    theme:bind(row.label, "TextColor3", opts.Dim and "TextDim" or "Text")
+
+    return setmetatable({ _row = row }, Label)
+end
+
+function Label:Get()
+    return self._row.label.Text
+end
+
+function Label:Set(text)
+    self._row.label.Text = tostring(text)
+end
+
+function Label:OnChanged()
+    -- A label has no user-driven changes; accepted for contract symmetry.
+end
+
+function Label:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
+__modules["widgets/separator"] = function(require)
+-- A 1px rule across the row, optionally with inline centred text.
+
+local M = {}
+
+-- No control slot: a separator spans the row. See label.lua for the rationale.
+M.FullWidth = true
+
+local Separator = {}
+Separator.__index = Separator
+
+function M.new(root, row, opts)
+    local theme = root.theme
+    local text = opts.Text
+
+    row.label.Text = ""
+    row.frame.Size = UDim2.new(1, 0, 0, text and 16 or 9)
+
+    local function rule(name)
+        local line = Instance.new("Frame")
+        line.Name = name
+        line.AnchorPoint = Vector2.new(0, 0.5)
+        line.Position = UDim2.new(0, 0, 0.5, 0)
+        line.Size = UDim2.new(1, 0, 0, 1)
+        line.BorderSizePixel = 0
+        line.Parent = row.frame
+        theme:bind(line, "BackgroundColor3", "ContainerBorder")
+        return line
+    end
+
+    local obj = setmetatable({ _row = row }, Separator)
+
+    if not text then
+        rule("line")
+        return obj
+    end
+
+    -- With text: two short rules either side of a centred caption.
+    local left = rule("lineLeft")
+    local right = rule("lineRight")
+
+    local caption = Instance.new("TextLabel")
+    caption.Name = "caption"
+    caption.BackgroundTransparency = 1
+    caption.AnchorPoint = Vector2.new(0.5, 0.5)
+    caption.Position = UDim2.fromScale(0.5, 0.5)
+    caption.Size = UDim2.new(0, 0, 1, 0)
+    caption.AutomaticSize = Enum.AutomaticSize.X
+    caption.Font = Enum.Font.Ubuntu
+    caption.TextSize = 11
+    caption.Text = " " .. text .. " "
+    caption.ZIndex = 2
+    caption.Parent = row.frame
+    theme:bind(caption, "TextColor3", "TextDim")
+
+    -- Size the rules once the caption has measured itself. AbsoluteSize is
+    -- zero until a render pass has run, so this cannot be done inline.
+    task.defer(function()
+        if not caption.Parent then return end
+        local half = math.max(0, (row.frame.AbsoluteSize.X - caption.AbsoluteSize.X) / 2)
+        left.Size = UDim2.new(0, half, 0, 1)
+        right.Size = UDim2.new(0, half, 0, 1)
+        right.AnchorPoint = Vector2.new(1, 0.5)
+        right.Position = UDim2.new(1, 0, 0.5, 0)
+    end)
+
+    return obj
+end
+
+function Separator:Get() return nil end
+function Separator:Set() end
+function Separator:OnChanged() end
+function Separator:SetVisible(visible) self._row.frame.Visible = visible end
+
+return M
+end
+
 __modules["widgets/slider"] = function(require)
 -- Slider: the pure value/fraction maths, plus (from a later task) the 2px track.
 -- The maths half is unit tested, so keep it in the Lua 5.4 / Luau intersection:
