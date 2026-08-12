@@ -1001,6 +1001,8 @@ function Page:setActive(active)
     if active then
         self._theme:unbind(self._button)
         self._theme:bind(self._button, "BackgroundColor3", "RailActive")
+    else
+        self._theme:unbind(self._button)
     end
     if self._glyph:IsA("TextLabel") then
         self._theme:unbind(self._glyph)
@@ -1009,6 +1011,17 @@ function Page:setActive(active)
 end
 
 function Page:Tab(name)
+    -- A page is either tabbed or it is not. Columns added straight to the page
+    -- live in an implicit tab that has no button, so a real tab created
+    -- afterwards would strand them the moment the user switches -- with no way
+    -- back. Nothing sensible to do but refuse.
+    if self._implicit then
+        error(string.format(
+            "chroma: page '%s' already has columns added directly; call :Tab() " ..
+            "before adding any columns, or use :Column() throughout",
+            tostring(self.name)), 2)
+    end
+
     local tab = Tab.new(self._root, self, name)
     self._tabs[#self._tabs + 1] = tab
 
@@ -1076,6 +1089,13 @@ function Page:Column(opts)
         self._tabs[#self._tabs + 1] = self._implicit
         self._activeTab = self._implicit
         self._implicit.holder.Visible = true
+    elseif not self._implicit then
+        -- Real tabs exist, so a bare :Column() would land in whichever tab is
+        -- currently active -- fine when there is one, ambiguous when there are
+        -- several, and invisible either way. Make the caller say which.
+        error(string.format(
+            "chroma: page '%s' has sub-tabs; add columns to a tab, not the page",
+            tostring(self.name)), 2)
     end
     return self._activeTab:Column(opts)
 end
