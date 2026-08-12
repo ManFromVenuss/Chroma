@@ -82,7 +82,8 @@ function Root:_layer(name, zindex)
 end
 
 -- Register anything that must be undone on Unload: instances, connections,
--- tweens, restored globals. Accepts a function, an Instance, or a Connection.
+-- tweens, restored globals. Accepts a function, an Instance, a Connection, or
+-- an object with a Disconnect method.
 function Root:keep(item)
     if type(item) == "function" then
         table.insert(self._junk, item)
@@ -91,7 +92,22 @@ function Root:keep(item)
     elseif typeof(item) == "RBXScriptConnection" then
         table.insert(self._junk, function() item:Disconnect() end)
     else
-        error("chroma: Root:keep expects a function, Instance or Connection", 2)
+        -- Executor signal implementations (e.g. Potassium's
+        -- DrawingImmediate.GetPaint():Connect()) return connection-like
+        -- userdata that is neither an Instance nor an RBXScriptConnection
+        -- (typeof reports something executor-specific, e.g. "PsmConnection").
+        -- There is no closed set of these types to check against, so fall
+        -- back to structural typing: anything exposing a callable Disconnect
+        -- is treated as a connection. Indexing arbitrary userdata can itself
+        -- throw, so probe it through pcall rather than assuming it is safe.
+        local ok, disconnect = pcall(function() return item.Disconnect end)
+        if ok and type(disconnect) == "function" then
+            table.insert(self._junk, function()
+                pcall(function() item:Disconnect() end)
+            end)
+            return item
+        end
+        error("chroma: Root:keep expects a function, Instance, Connection, or an object with a Disconnect method", 2)
     end
     return item
 end
