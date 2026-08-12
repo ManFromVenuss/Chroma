@@ -164,6 +164,10 @@ function M.new(root, window, opts)
     subtabList.BorderSizePixel = 0
     subtabList.Parent = subtabBar
 
+    local subtabPad = Instance.new("UIPadding")
+    subtabPad.PaddingLeft = UDim.new(0, PADDING)
+    subtabPad.Parent = subtabList
+
     local subtabLayout = Instance.new("UIListLayout")
     subtabLayout.FillDirection = Enum.FillDirection.Horizontal
     subtabLayout.SortOrder = Enum.SortOrder.LayoutOrder

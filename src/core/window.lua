@@ -123,8 +123,8 @@ function M.new(root, opts)
     local titleText = Instance.new("TextLabel")
     titleText.Name = "title"
     titleText.BackgroundTransparency = 1
-    titleText.Size = UDim2.new(1, -16, 1, -2)
-    titleText.Position = UDim2.fromOffset(8, 2)
+    titleText.Size = UDim2.new(1, -16, 1, 0)
+    titleText.Position = UDim2.fromOffset(8, 0)
     titleText.Font = Enum.Font.Ubuntu
     titleText.TextSize = 12
     titleText.TextXAlignment = Enum.TextXAlignment.Left

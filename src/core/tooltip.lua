@@ -154,7 +154,12 @@ function Tooltip:_show(icon, text)
         { x = pos.X, y = pos.Y, w = size.X, h = size.Y },
         { w = self._frame.AbsoluteSize.X, h = self._frame.AbsoluteSize.Y },
         { w = viewport.X, h = viewport.Y })
-    self._frame.Position = UDim2.fromOffset(x, y)
+    -- place() works in screen space (it is derived from AbsolutePosition), but
+    -- Position is parent space, and the tooltip layer sits `inset` above the
+    -- screen origin because the ScreenGui ignores the GUI inset. Subtract the
+    -- layer's own offset or the tooltip floats away from its icon.
+    local layerOrigin = self._frame.Parent.AbsolutePosition
+    self._frame.Position = UDim2.fromOffset(x - layerOrigin.X, y - layerOrigin.Y)
 
     -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
     -- is the only genuinely bad failure here. So while one is visible -- and

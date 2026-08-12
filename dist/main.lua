@@ -968,6 +968,10 @@ function M.new(root, window, opts)
     subtabList.BorderSizePixel = 0
     subtabList.Parent = subtabBar
 
+    local subtabPad = Instance.new("UIPadding")
+    subtabPad.PaddingLeft = UDim.new(0, PADDING)
+    subtabPad.Parent = subtabList
+
     local subtabLayout = Instance.new("UIListLayout")
     subtabLayout.FillDirection = Enum.FillDirection.Horizontal
     subtabLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -1812,7 +1816,12 @@ function Tooltip:_show(icon, text)
         { x = pos.X, y = pos.Y, w = size.X, h = size.Y },
         { w = self._frame.AbsoluteSize.X, h = self._frame.AbsoluteSize.Y },
         { w = viewport.X, h = viewport.Y })
-    self._frame.Position = UDim2.fromOffset(x, y)
+    -- place() works in screen space (it is derived from AbsolutePosition), but
+    -- Position is parent space, and the tooltip layer sits `inset` above the
+    -- screen origin because the ScreenGui ignores the GUI inset. Subtract the
+    -- layer's own offset or the tooltip floats away from its icon.
+    local layerOrigin = self._frame.Parent.AbsolutePosition
+    self._frame.Position = UDim2.fromOffset(x - layerOrigin.X, y - layerOrigin.Y)
 
     -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
     -- is the only genuinely bad failure here. So while one is visible -- and
@@ -1986,8 +1995,8 @@ function M.new(root, opts)
     local titleText = Instance.new("TextLabel")
     titleText.Name = "title"
     titleText.BackgroundTransparency = 1
-    titleText.Size = UDim2.new(1, -16, 1, -2)
-    titleText.Position = UDim2.fromOffset(8, 2)
+    titleText.Size = UDim2.new(1, -16, 1, 0)
+    titleText.Position = UDim2.fromOffset(8, 0)
     titleText.Font = Enum.Font.Ubuntu
     titleText.TextSize = 12
     titleText.TextXAlignment = Enum.TextXAlignment.Left
