@@ -52,13 +52,25 @@ Anim.__index = Anim
 -- contents up under the title bar and destroy the gap that makes the bar read as
 -- separate.
 function M.new(root, parts)
-    return setmetatable({
+    local self = setmetatable({
         _root = root,
         _parts = parts,
         _guard = Guard.new(),
         _tweens = {},
         _open = false,
     }, Anim)
+
+    -- One cleanup closure covers every tween this instance ever creates.
+    -- Registering a closure per-tween (as _tween used to) would append to
+    -- root's junk list on every open/close, growing it without bound.
+    root:keep(function()
+        for i = 1, #self._tweens do
+            pcall(function() self._tweens[i]:Cancel() end)
+        end
+        self._tweens = {}
+    end)
+
+    return self
 end
 
 function Anim:isOpen()
@@ -81,9 +93,6 @@ function Anim:_tween(object, time, delay, props, easing, direction)
     local info = TweenInfo.new(time, easing, direction, 0, false, delay)
     local tween = TweenService:Create(object, info, props)
     table.insert(self._tweens, tween)
-    self._root:keep(function()
-        pcall(function() tween:Cancel() end)
-    end)
     tween:Play()
     return tween
 end
@@ -139,8 +148,9 @@ function Anim:open(animate)
 
     task.delay(t.height.delay, function()
         self._guard:run(token, function()
+            local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
-                { Size = UDim2.fromOffset(full.X, full.Y) }, EASE_OUT, Enum.EasingDirection.Out)
+                { Size = UDim2.fromOffset(liveFull.X, liveFull.Y) }, EASE_OUT, Enum.EasingDirection.Out)
         end)
     end)
 
@@ -166,15 +176,15 @@ function Anim:close(animate)
 
     local t = M.TIMING.close
     local token = self._guard:begin()
-    local full = p.fullSize()
 
     self:_tween(p.contents, t.contents.time, t.contents.delay,
         { Position = self:_away() }, EASE_IN, Enum.EasingDirection.In)
 
     task.delay(t.height.delay, function()
         self._guard:run(token, function()
+            local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
-                { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
+                { Size = UDim2.fromOffset(liveFull.X, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
         end)
     end)
 
