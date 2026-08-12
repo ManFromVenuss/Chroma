@@ -15,17 +15,20 @@ local TweenService
 
 local M = {}
 
--- Offsets and durations in seconds. Total is 0.26s each way. The small overlap
--- between stages is deliberate: it keeps the two stages reading as one gesture
--- rather than two separate steps.
+-- Offsets and durations in seconds. Total is 0.33s each way.
+--
+-- The stages are deliberately SEPARATED by a 0.05s gap rather than overlapped:
+-- each stage finishes before the next begins, so the two reads as "bar, then
+-- frame" instead of one blended motion. Overlapping them was tried first and
+-- felt mushy.
 M.TIMING = {
     open = {
         bar    = { delay = 0.00, time = 0.12 },
-        height = { delay = 0.10, time = 0.16 },
+        height = { delay = 0.17, time = 0.16 },
     },
     close = {
         height = { delay = 0.00, time = 0.14 },
-        bar    = { delay = 0.12, time = 0.14 },
+        bar    = { delay = 0.19, time = 0.14 },
     },
 }
 
