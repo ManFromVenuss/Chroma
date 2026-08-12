@@ -66,6 +66,18 @@ function Anim:isOpen()
     return self._open
 end
 
+-- Longest end-to-end duration of a close, derived from TIMING so a retune of the
+-- table cannot desynchronise callers that need to know when the window is gone.
+function M.closeDuration()
+    local t = M.TIMING.close
+    local total = 0
+    for _, stage in pairs(t) do
+        local finish = stage.delay + stage.time
+        if finish > total then total = finish end
+    end
+    return total
+end
+
 function Anim:_home()
     return UDim2.fromOffset(0, self._parts.contentTop)
 end

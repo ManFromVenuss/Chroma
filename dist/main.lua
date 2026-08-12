@@ -82,6 +82,18 @@ function Anim:isOpen()
     return self._open
 end
 
+-- Longest end-to-end duration of a close, derived from TIMING so a retune of the
+-- table cannot desynchronise callers that need to know when the window is gone.
+function M.closeDuration()
+    local t = M.TIMING.close
+    local total = 0
+    for _, stage in pairs(t) do
+        local finish = stage.delay + stage.time
+        if finish > total then total = finish end
+    end
+    return total
+end
+
 function Anim:_home()
     return UDim2.fromOffset(0, self._parts.contentTop)
 end
@@ -1075,9 +1087,14 @@ function M.new(root, opts)
     theme:bind(grip, "BackgroundColor3", "Accent")
 
     self:_makeDragHandle(grip, function(delta, start)
+        -- Read the viewport at drag time, not at construction: the player may
+        -- resize or fullscreen the Roblox window mid-session.
+        local liveViewport = workspace.CurrentCamera.ViewportSize
+        local maxW = math.max(self._minSize.X, liveViewport.X)
+        local maxH = math.max(self._minSize.Y, liveViewport.Y)
         self:setSize(
-            math.clamp(start.X + delta.X, self._minSize.X, 1600),
-            math.clamp(start.Y + delta.Y, self._minSize.Y, 1000))
+            math.clamp(start.X + delta.X, self._minSize.X, maxW),
+            math.clamp(start.Y + delta.Y, self._minSize.Y, maxH))
     end, function() return frame.AbsoluteSize end)
 
     --== animation ==--
@@ -1168,7 +1185,9 @@ function Window:close()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
     -- Stars keep no state worth preserving, so pausing while hidden is free.
-    task.delay(0.33, function()
+    -- +0.01 is a deliberate one-frame margin so the pause lands just after the
+    -- final tween completes rather than racing it.
+    task.delay(Anim.closeDuration() + 0.01, function()
         if not self._anim:isOpen() then
             self._backdrop:setPaused(true)
         end
