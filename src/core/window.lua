@@ -60,56 +60,15 @@ function M.new(root, opts)
     frame.Parent = root.windowLayer
     self._frame = root:keep(frame)
 
-    -- Crisp 1px accent outline on the window itself. ClipsDescendants only
-    -- clips frame's CHILDREN, not its own border, so this is safe here (unlike
-    -- the glow below, which cannot live inside frame).
-    local frameStroke = Instance.new("UIStroke")
-    frameStroke.Thickness = 1
-    frameStroke.Parent = frame
-    theme:bind(frameStroke, "Color", "Accent")
-
-    --== glow: a soft bloom behind the window ==--
-    -- Must be a SIBLING of frame (parented to windowLayer), not a child: frame
-    -- has ClipsDescendants = true for the slide animation, which would cut the
-    -- glow off at the window's own edge and defeat the point of it.
-    local glow = Instance.new("Frame")
-    glow.Name = "windowGlow"
-    glow.BackgroundTransparency = 1
-    glow.BorderSizePixel = 0
-    -- Below frame's (default) ZIndex of 1, so it renders behind the window.
-    -- No Active set (defaults false): it must never intercept input.
-    glow.ZIndex = 0
-    glow.Parent = root.windowLayer
-    self._glow = root:keep(glow)
-
-    local glowInner = Instance.new("Frame")
-    glowInner.Name = "inner"
-    glowInner.BackgroundTransparency = 1
-    glowInner.BorderSizePixel = 0
-    glowInner.Size = UDim2.fromScale(1, 1)
-    glowInner.ZIndex = 0
-    glowInner.Parent = glow
-    local glowInnerStroke = Instance.new("UIStroke")
-    glowInnerStroke.Thickness = 2
-    glowInnerStroke.Transparency = 0.55
-    glowInnerStroke.Parent = glowInner
-    theme:bind(glowInnerStroke, "Color", "Accent")
-
-    local glowOuter = Instance.new("Frame")
-    glowOuter.Name = "outer"
-    glowOuter.BackgroundTransparency = 1
-    glowOuter.BorderSizePixel = 0
-    -- Inset outward a bit further than the inner step, so the two strokes read
-    -- as a falloff rather than a second hard border.
-    glowOuter.Size = UDim2.new(1, 6, 1, 6)
-    glowOuter.Position = UDim2.new(0, -3, 0, -3)
-    glowOuter.ZIndex = 0
-    glowOuter.Parent = glow
-    local glowOuterStroke = Instance.new("UIStroke")
-    glowOuterStroke.Thickness = 5
-    glowOuterStroke.Transparency = 0.85
-    glowOuterStroke.Parent = glowOuter
-    theme:bind(glowOuterStroke, "Color", "Accent")
+    -- Deliberately no stroke on `frame`. Its bounds enclose the title bar as
+    -- well as the body, so a stroke here would outline the bar too -- and the
+    -- bar is meant to read as a detached strip defined only by its two gradient
+    -- hairlines. The window's outline is the body's own stroke, added below.
+    --
+    -- A soft glow was tried here and removed: Roblox has no real bloom, so it
+    -- was stacked UIStrokes, which band into visibly separate rings rather than
+    -- a falloff. A genuine glow would need a 9-slice radial sprite uploaded as
+    -- an image asset.
 
     --== title bar: its own strip, translucent, detached by a gap ==--
     local bar = Instance.new("Frame")
@@ -308,28 +267,12 @@ function M.new(root, opts)
     -- Only one root:onFrame handler is allowed (Root:onFrame asserts on a
     -- second registration), so all window per-frame work lives in this one
     -- callback.
-    local GLOW_PAD = 6
     root:onFrame(function(dt)
         self._backdrop:step(dt)
         local hairColor = ColorSequence.new(
             self._theme:get("HairA"), self._theme:get("HairB"))
         self._hairGradient.Color = hairColor
         self._hairGradientBottom.Color = hairColor
-
-        -- The glow is a sibling, not a child, so it does not move or resize
-        -- with frame automatically; it has to be re-synced every frame to
-        -- follow both the open/close size animation and dragging. Diff
-        -- against the last values written, mirroring theme:apply()'s pattern,
-        -- so a static window costs nothing here.
-        local pos, size = frame.Position, frame.Size
-        if pos ~= self._lastGlowSourcePos or size ~= self._lastGlowSourceSize then
-            self._lastGlowSourcePos = pos
-            self._lastGlowSourceSize = size
-            glow.Position = UDim2.fromOffset(
-                pos.X.Offset - GLOW_PAD, pos.Y.Offset - GLOW_PAD)
-            glow.Size = UDim2.fromOffset(
-                size.X.Offset + GLOW_PAD * 2, size.Y.Offset + GLOW_PAD * 2)
-        end
     end)
 
     self:setSize(size.X, size.Y)
