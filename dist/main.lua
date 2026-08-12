@@ -934,7 +934,16 @@ function M.new(root, parent, opts, fullWidth)
         control.Parent = row
     end
 
-    return { frame = row, label = label, icon = icon, control = control }
+    local api = { frame = row, label = label, icon = icon, control = control }
+
+    -- Widgets that need a different row height ask for it rather than writing
+    -- to row.frame themselves. Reaching into Instances the row owns is what
+    -- the control-slot boundary exists to prevent.
+    function api.setHeight(px)
+        row.Size = UDim2.new(1, 0, 0, px)
+    end
+
+    return api
 end
 
 return M
@@ -1944,7 +1953,7 @@ function M.new(root, row, opts)
     local text = opts.Text
 
     row.label.Text = ""
-    row.frame.Size = UDim2.new(1, 0, 0, text and 16 or 9)
+    row.setHeight(text and 16 or 9)
 
     local function rule(name)
         local line = Instance.new("Frame")
@@ -1984,15 +1993,23 @@ function M.new(root, row, opts)
     theme:bind(caption, "TextColor3", "TextDim")
 
     -- Size the rules once the caption has measured itself. AbsoluteSize is
-    -- zero until a render pass has run, so this cannot be done inline.
-    task.defer(function()
+    -- zero until a render pass has run, so a single deferred measurement is
+    -- not enough -- if the row is still zero-width at that moment (e.g. a
+    -- whole menu built before anything has rendered), half computes to 0 and
+    -- both rules stay invisible forever, since nothing would re-measure.
+    -- Instead, measure now and re-measure every time the row's actual width
+    -- changes (first render, window resize, page switch), so it self-heals.
+    local function measure()
         if not caption.Parent then return end
         local half = math.max(0, (row.frame.AbsoluteSize.X - caption.AbsoluteSize.X) / 2)
         left.Size = UDim2.new(0, half, 0, 1)
         right.Size = UDim2.new(0, half, 0, 1)
         right.AnchorPoint = Vector2.new(1, 0.5)
         right.Position = UDim2.new(1, 0, 0.5, 0)
-    end)
+    end
+
+    measure()
+    root:keep(row.frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure))
 
     return obj
 end

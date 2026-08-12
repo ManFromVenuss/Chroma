@@ -117,7 +117,16 @@ function M.new(root, parent, opts, fullWidth)
         control.Parent = row
     end
 
-    return { frame = row, label = label, icon = icon, control = control }
+    local api = { frame = row, label = label, icon = icon, control = control }
+
+    -- Widgets that need a different row height ask for it rather than writing
+    -- to row.frame themselves. Reaching into Instances the row owns is what
+    -- the control-slot boundary exists to prevent.
+    function api.setHeight(px)
+        row.Size = UDim2.new(1, 0, 0, px)
+    end
+
+    return api
 end
 
 return M
