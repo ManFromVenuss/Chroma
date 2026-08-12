@@ -78,6 +78,12 @@ end
 -- One method per registered widget, generated rather than written out, so this
 -- file has no per-widget knowledge.
 for name, widget in pairs(widgets) do
+    -- A widget named `new`, `holder` or after any existing method would silently
+    -- clobber it, and the symptom ("containers stopped working") would surface
+    -- nowhere near the registry entry that caused it. Fail at load instead.
+    assert(Container[name] == nil,
+        "chroma: widget name '" .. tostring(name) .. "' collides with an existing Container member")
+
     Container[name] = function(self, opts)
         opts = opts or {}
         self._order = self._order + 1
