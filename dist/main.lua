@@ -958,11 +958,21 @@ function M.new(root, window, opts)
     subtabRule.Parent = subtabBar
     theme:bind(subtabRule, "BackgroundColor3", "ContainerBorder")
 
+    -- The buttons get their own frame because a UIListLayout arranges EVERY
+    -- child of its parent -- including the 1px rule, which is full width and
+    -- would consume the whole row and push the buttons off the end.
+    local subtabList = Instance.new("Frame")
+    subtabList.Name = "list"
+    subtabList.Size = UDim2.fromScale(1, 1)
+    subtabList.BackgroundTransparency = 1
+    subtabList.BorderSizePixel = 0
+    subtabList.Parent = subtabBar
+
     local subtabLayout = Instance.new("UIListLayout")
     subtabLayout.FillDirection = Enum.FillDirection.Horizontal
     subtabLayout.SortOrder = Enum.SortOrder.LayoutOrder
     subtabLayout.Padding = UDim.new(0, 14)
-    subtabLayout.Parent = subtabBar
+    subtabLayout.Parent = subtabList
 
     local columnArea = Instance.new("Frame")
     columnArea.Name = "columns"
@@ -981,6 +991,7 @@ function M.new(root, window, opts)
         _activeTab = nil,
         _implicit = nil,
         _subtabBar = subtabBar,
+        _subtabList = subtabList,
         _columnArea = columnArea,
         _button = button,
         _marker = marker,
@@ -1037,7 +1048,7 @@ function Page:Tab(name)
     button.Text = name
     button.AutoButtonColor = false
     button.LayoutOrder = #self._tabs
-    button.Parent = self._subtabBar
+    button.Parent = self._subtabList
     self._root:keep(button)
 
     local underline = Instance.new("Frame")
@@ -1062,7 +1073,10 @@ function Page:Tab(name)
     self._columnArea.Position = UDim2.fromOffset(PADDING, SUBTAB_HEIGHT + PADDING)
     self._columnArea.Size = UDim2.new(1, -PADDING * 2, 1, -(SUBTAB_HEIGHT + PADDING * 2))
 
-    if not self._activeTab then self:setActiveTab(tab) end
+    -- Restyle every tab, not just the first: setActiveTab is what binds each
+    -- button's colour, so a tab added later would otherwise keep Roblox's
+    -- default TextButton colour until something else triggered a restyle.
+    self:setActiveTab(self._activeTab or tab)
     return tab
 end
 
