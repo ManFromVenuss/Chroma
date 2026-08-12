@@ -87,6 +87,22 @@ function M.new(root, opts)
     hairGradient.Parent = hair
     self._hairGradient = hairGradient
 
+    -- Mirrored along the bottom edge so the bar reads symmetrically: without
+    -- this the 1px stroke plus the top hairline made the top read as a bright
+    -- ~3px band against a thin 1px bottom, which looked unbalanced on a
+    -- detached floating strip.
+    local hairBottom = Instance.new("Frame")
+    hairBottom.Name = "hairlineBottom"
+    hairBottom.Size = UDim2.new(1, 0, 0, 2)
+    hairBottom.Position = UDim2.new(0, 0, 1, -2)
+    hairBottom.BorderSizePixel = 0
+    hairBottom.ZIndex = 22
+    hairBottom.Parent = bar
+    local hairGradientBottom = Instance.new("UIGradient")
+    hairGradientBottom.Color = ColorSequence.new(theme:get("HairA"), theme:get("HairB"))
+    hairGradientBottom.Parent = hairBottom
+    self._hairGradientBottom = hairGradientBottom
+
     local titleText = Instance.new("TextLabel")
     titleText.Name = "title"
     titleText.BackgroundTransparency = 1
@@ -179,11 +195,8 @@ function M.new(root, opts)
     --== animation ==--
     self._anim = Anim.new(root, {
         frame = frame,
-        body = body,
         contents = contents,
         barHeight = BAR_HEIGHT,
-        contentSlide = 30,
-        contentTop = BAR_HEIGHT + BAR_GAP,
         fullSize = function() return self._fullSize end,
     })
     self._animate = opts.Animations ~= false
@@ -220,8 +233,10 @@ function M.new(root, opts)
 
     root:onFrame(function(dt)
         self._backdrop:step(dt)
-        self._hairGradient.Color = ColorSequence.new(
+        local hairColor = ColorSequence.new(
             self._theme:get("HairA"), self._theme:get("HairB"))
+        self._hairGradient.Color = hairColor
+        self._hairGradientBottom.Color = hairColor
     end)
 
     self:setSize(size.X, size.Y)

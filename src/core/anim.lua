@@ -1,8 +1,11 @@
--- Three-stage open/close sequencer.
+-- Two-stage open/close sequencer.
 --
 -- The window frame keeps AnchorPoint (0, 0) permanently, which is also its drag
 -- origin, so animation and dragging never disagree about where the window is.
 -- Everything shrinks Size toward that fixed corner; Position is never touched.
+-- The body never moves horizontally: only the frame's Size animates, so the
+-- title bar widens/narrows and the frame unfolds/collapses vertically, with no
+-- separate contents slide to read as a third, disjointed motion.
 local Guard = require("util/guard")
 
 -- Resolved lazily in M.new. A module-scope game:GetService() executes on require,
@@ -12,17 +15,17 @@ local TweenService
 
 local M = {}
 
--- Offsets and durations in seconds. Total is 0.32s each way.
+-- Offsets and durations in seconds. Total is 0.26s each way. The small overlap
+-- between stages is deliberate: it keeps the two stages reading as one gesture
+-- rather than two separate steps.
 M.TIMING = {
     open = {
-        bar      = { delay = 0.00, time = 0.11 },
-        height   = { delay = 0.08, time = 0.14 },
-        contents = { delay = 0.17, time = 0.15 },
+        bar    = { delay = 0.00, time = 0.12 },
+        height = { delay = 0.10, time = 0.16 },
     },
     close = {
-        contents = { delay = 0.00, time = 0.09 },
-        height   = { delay = 0.09, time = 0.12 },
-        bar      = { delay = 0.21, time = 0.11 },
+        height = { delay = 0.00, time = 0.14 },
+        bar    = { delay = 0.12, time = 0.14 },
     },
 }
 
@@ -32,12 +35,10 @@ local EASE_IN = Enum.EasingStyle.Quad
 local Anim = {}
 Anim.__index = Anim
 
--- parts: { frame, body, contents, barHeight, fullSize(), contentSlide, contentTop }
+-- parts: { frame, contents, barHeight, fullSize() }
 --
--- contentTop is the contents frame's resting Y offset (title bar height + gap).
--- The slide tween must preserve it: writing UDim2.fromOffset(x, 0) would snap the
--- contents up under the title bar and destroy the gap that makes the bar read as
--- separate.
+-- The contents frame is positioned once by the window (at title bar height +
+-- gap) and never moved again here; only frame.Size animates.
 function M.new(root, parts)
     TweenService = TweenService or game:GetService("TweenService")
 
@@ -78,15 +79,6 @@ function M.closeDuration()
     return total
 end
 
-function Anim:_home()
-    return UDim2.fromOffset(0, self._parts.contentTop)
-end
-
-function Anim:_away()
-    local p = self._parts
-    return UDim2.fromOffset(-p.contentSlide, p.contentTop)
-end
-
 function Anim:_tween(object, time, delay, props, easing, direction)
     -- TweenInfo.new(Time, EasingStyle, EasingDirection, RepeatCount, Reverses, DelayTime)
     -- The delay is the SIXTH argument. Passing it fourth sets RepeatCount and the
@@ -113,11 +105,9 @@ function Anim:_snap(open)
     local full = p.fullSize()
     if open then
         p.frame.Size = UDim2.fromOffset(full.X, full.Y)
-        p.contents.Position = self:_home()
         p.contents.Visible = true
     else
         p.frame.Size = UDim2.fromOffset(0, p.barHeight)
-        p.contents.Position = self:_away()
         p.contents.Visible = false
     end
 end
@@ -138,10 +128,10 @@ function Anim:open(animate)
     local t = M.TIMING.open
     local token = self._guard:begin()
 
-    -- Start from fully collapsed: zero width, title-bar height, contents parked
-    -- off to the left.
+    -- Start from fully collapsed: zero width, title-bar height. The title bar
+    -- expands rightward from its left edge (AnchorPoint stays (0, 0)), then the
+    -- frame unfolds downward from the bar.
     p.frame.Size = UDim2.fromOffset(0, p.barHeight)
-    p.contents.Position = self:_away()
     p.contents.Visible = true
 
     self:_tween(p.frame, t.bar.time, t.bar.delay,
@@ -156,14 +146,6 @@ function Anim:open(animate)
             local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
                 { Size = UDim2.fromOffset(liveFull.X, liveFull.Y) }, EASE_OUT, Enum.EasingDirection.Out)
-        end)
-    end)
-
-    task.delay(t.contents.delay, function()
-        if not self._root:isAlive() then return end
-        self._guard:run(token, function()
-            self:_tween(p.contents, t.contents.time, 0,
-                { Position = self:_home() }, EASE_OUT, Enum.EasingDirection.Out)
         end)
     end)
 end
@@ -183,17 +165,11 @@ function Anim:close(animate)
     local t = M.TIMING.close
     local token = self._guard:begin()
 
-    self:_tween(p.contents, t.contents.time, t.contents.delay,
-        { Position = self:_away() }, EASE_IN, Enum.EasingDirection.In)
-
-    task.delay(t.height.delay, function()
-        if not self._root:isAlive() then return end
-        self._guard:run(token, function()
-            local liveFull = p.fullSize()
-            self:_tween(p.frame, t.height.time, 0,
-                { Size = UDim2.fromOffset(liveFull.X, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
-        end)
-    end)
+    -- The frame collapses upward into the title bar first, then the bar
+    -- retracts leftward to nothing.
+    local full = p.fullSize()
+    self:_tween(p.frame, t.height.time, t.height.delay,
+        { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
 
     task.delay(t.bar.delay, function()
         if not self._root:isAlive() then return end
