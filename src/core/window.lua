@@ -86,9 +86,13 @@ function M.new(root, opts)
     -- floating strip, so leaving its left and right edges unbordered reads fine
     -- -- the body keeps its own stroke, and that is what outlines the window.
 
+    -- White base colour on purpose: a UIGradient MULTIPLIES the element's
+    -- colour, and a Frame defaults to grey (163,162,165), which would render
+    -- the gradient at about 64% intensity.
     local hair = Instance.new("Frame")
     hair.Name = "hairline"
     hair.Size = UDim2.new(1, 0, 0, 2)
+    hair.BackgroundColor3 = Color3.new(1, 1, 1)
     hair.BorderSizePixel = 0
     hair.ZIndex = 22
     hair.Parent = bar
@@ -105,6 +109,7 @@ function M.new(root, opts)
     hairBottom.Name = "hairlineBottom"
     hairBottom.Size = UDim2.new(1, 0, 0, 2)
     hairBottom.Position = UDim2.new(0, 0, 1, -2)
+    hairBottom.BackgroundColor3 = Color3.new(1, 1, 1)
     hairBottom.BorderSizePixel = 0
     hairBottom.ZIndex = 22
     hairBottom.Parent = bar
@@ -156,10 +161,20 @@ function M.new(root, opts)
     theme:bind(body, "BackgroundColor3", "Body")
     self._body = body
 
+    -- The outline carries the SAME hue-shifted gradient as the title bar's
+    -- hairlines, so the bar and the window read as one piece rather than two
+    -- accent colours side by side. A UIGradient parented to a UIStroke tints
+    -- the stroke; the stroke's own Color must stay white or it multiplies the
+    -- gradient down, so this one is deliberately not theme-bound.
     local bodyStroke = Instance.new("UIStroke")
     bodyStroke.Thickness = 1
+    bodyStroke.Color = Color3.new(1, 1, 1)
     bodyStroke.Parent = body
-    theme:bind(bodyStroke, "Color", "Accent")
+
+    local bodyStrokeGradient = Instance.new("UIGradient")
+    bodyStrokeGradient.Color = ColorSequence.new(theme:get("HairA"), theme:get("HairB"))
+    bodyStrokeGradient.Parent = bodyStroke
+    self._bodyStrokeGradient = bodyStrokeGradient
 
     self._backdrop = Backdrop.new(root, body, opts.Backdrop)
 
@@ -279,6 +294,7 @@ function M.new(root, opts)
             self._theme:get("HairA"), self._theme:get("HairB"))
         self._hairGradient.Color = hairColor
         self._hairGradientBottom.Color = hairColor
+        self._bodyStrokeGradient.Color = hairColor
     end)
 
     self:setSize(size.X, size.Y)
