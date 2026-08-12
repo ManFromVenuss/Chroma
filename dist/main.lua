@@ -1326,56 +1326,84 @@ function M.new(root, parent, opts, fullWidth)
     root:keep(row)
 
     local hasIcon = opts.Description ~= nil and opts.Description ~= ""
-    -- The icon sits immediately left of the control slot at a FIXED offset,
-    -- rather than trailing the label text. Trailing would need TextBounds,
-    -- which only settles a frame later -- the same timing trap that clips
-    -- wrapped labels. Fixed placement also lines every icon in a column up
-    -- vertically, which scans better than a ragged edge.
-    local labelRight = M.CONTROL_WIDTH + (hasIcon and (M.ICON_SIZE + 8) or 0)
+
+    -- Left region holds [label][icon] in a horizontal list, so the engine
+    -- does the measuring for icon placement -- no TextBounds read, no
+    -- one-frame timing trap. Chosen over the old fixed-offset placement
+    -- after an in-game A/B comparison: trailing the label reads better than
+    -- every icon lining up in a column.
+    local left = Instance.new("Frame")
+    left.Name = "left"
+    left.BackgroundTransparency = 1
+    left.BorderSizePixel = 0
+    left.Position = UDim2.fromOffset(0, 0)
+    if fullWidth then
+        left.Size = UDim2.new(1, 0, 1, 0)
+    else
+        left.Size = UDim2.new(1, -M.CONTROL_WIDTH, 1, 0)
+    end
+    -- Above the hit button (2) so hover/tooltips on the icon still resolve
+    -- against it. This is easy to undo by accident -- if it regresses to <=2
+    -- the symptom is tooltips silently going dead, far removed from this
+    -- line, so do not "fix" it back down to match the label's old ZIndex.
+    left.ZIndex = 4
+    left.Parent = row
+    root:keep(left)
+
+    local list = Instance.new("UIListLayout")
+    list.FillDirection = Enum.FillDirection.Horizontal
+    list.VerticalAlignment = Enum.VerticalAlignment.Center
+    list.SortOrder = Enum.SortOrder.LayoutOrder
+    list.Padding = UDim.new(0, 5)
+    list.Parent = left
 
     local label = Instance.new("TextLabel")
     label.Name = "label"
     label.BackgroundTransparency = 1
-    label.Position = UDim2.fromOffset(0, 0)
-    if fullWidth then
-        -- No control slot to reserve space for; the icon (if any) still needs
-        -- its own space carved out of the label's width.
-        if hasIcon then
-            label.Size = UDim2.new(1, -(M.ICON_SIZE + 8), 1, 0)
-        else
-            label.Size = UDim2.new(1, 0, 1, 0)
-        end
-    else
-        label.Size = UDim2.new(1, -labelRight, 1, 0)
-    end
+    label.AutomaticSize = Enum.AutomaticSize.X
+    label.Size = UDim2.new(0, 0, 1, 0)
+    label.LayoutOrder = 1
     label.Font = Enum.Font.Ubuntu
     label.TextSize = 12
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextTruncate = Enum.TextTruncate.AtEnd
     label.Text = opts.Name or ""
-    label.Parent = row
+    label.Parent = left
     theme:bind(label, "TextColor3", "Text")
+
+    -- Cap the label's width so a long name truncates instead of shoving the
+    -- icon into the control slot. left.AbsoluteSize is (0, 0) until the first
+    -- render, so reading it once at construction would set a bogus cap --
+    -- this is the same self-healing pattern used elsewhere in the project:
+    -- set it immediately AND recompute on AbsoluteSize changing.
+    local cap = Instance.new("UISizeConstraint")
+    cap.Parent = label
+    local function updateCap()
+        local maxWidth = left.AbsoluteSize.X
+        if hasIcon then
+            maxWidth = maxWidth - (M.ICON_SIZE + 5)
+        end
+        if maxWidth < 0 then
+            maxWidth = 0
+        end
+        cap.MaxSize = Vector2.new(maxWidth, math.huge)
+    end
+    updateCap()
+    root:keep(left:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCap))
 
     local icon
     if hasIcon then
         icon = Instance.new("TextButton")
         icon.Name = "help"
-        icon.AnchorPoint = Vector2.new(1, 0.5)
-        if fullWidth then
-            -- No control slot to sit left of; anchor to the row's own edge.
-            icon.Position = UDim2.new(1, 0, 0.5, 0)
-        else
-            icon.Position = UDim2.new(1, -M.CONTROL_WIDTH, 0.5, 0)
-        end
+        icon.LayoutOrder = 2
         icon.Size = UDim2.fromOffset(M.ICON_SIZE, M.ICON_SIZE)
         icon.BackgroundTransparency = 1
         icon.AutoButtonColor = false
         icon.Font = Enum.Font.Ubuntu
         icon.TextSize = 10
         icon.Text = "?"
-        -- Above the hit button (2) so hover/tooltips still resolve against it.
         icon.ZIndex = 4
-        icon.Parent = row
+        icon.Parent = left
         theme:bind(icon, "TextColor3", "TextDim")
 
         local iconStroke = Instance.new("UIStroke")
