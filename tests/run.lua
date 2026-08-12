@@ -13,29 +13,38 @@ local files = {
 
 local passed, failed = 0, 0
 local failures = {}
+local skipped = {}
 
 for _, modname in ipairs(files) do
-    local loaded, suite = pcall(require, modname)
-    if not loaded then
-        -- A suite that does not exist yet is skipped, not a failure: this lets
-        -- the file list stay complete while tasks are implemented in order.
-        if not tostring(suite):find("not found", 1, true) then
+    -- Decide skip-vs-fail by file existence, not by sniffing the require
+    -- error string: Lua 5.4 emits the same "module not found" text whether
+    -- the suite file itself is missing (expected, skip) or the suite file
+    -- exists but one of its own requires points at something missing (a
+    -- real bug that must fail loudly).
+    local path = modname:gsub("%.", "/") .. ".lua"
+    local f = io.open(path, "r")
+    if not f then
+        table.insert(skipped, (modname:gsub("^tests%.", "")))
+    else
+        f:close()
+        local loaded, suite = pcall(require, modname)
+        if not loaded then
             failed = failed + 1
             table.insert(failures, modname .. " (load error): " .. tostring(suite))
-        end
-    else
-        local names = {}
-        for name in pairs(suite) do table.insert(names, name) end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            local ok, err = pcall(suite[name])
-            if ok then
-                passed = passed + 1
-                print(string.format("  ok   %s :: %s", modname, name))
-            else
-                failed = failed + 1
-                print(string.format("  FAIL %s :: %s", modname, name))
-                table.insert(failures, modname .. " :: " .. name .. "\n      " .. tostring(err))
+        else
+            local names = {}
+            for name in pairs(suite) do table.insert(names, name) end
+            table.sort(names)
+            for _, name in ipairs(names) do
+                local ok, err = pcall(suite[name])
+                if ok then
+                    passed = passed + 1
+                    print(string.format("  ok   %s :: %s", modname, name))
+                else
+                    failed = failed + 1
+                    print(string.format("  FAIL %s :: %s", modname, name))
+                    table.insert(failures, modname .. " :: " .. name .. "\n      " .. tostring(err))
+                end
             end
         end
     end
@@ -45,6 +54,9 @@ print("")
 if failed > 0 then
     print("FAILURES:")
     for _, f in ipairs(failures) do print("  " .. f) end
+end
+if #skipped > 0 then
+    print(string.format("skipped %d suites (not yet written): %s", #skipped, table.concat(skipped, ", ")))
 end
 print(string.format("%d passed, %d failed", passed, failed))
 os.exit(failed == 0 and 0 or 1)
