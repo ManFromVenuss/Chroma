@@ -163,7 +163,11 @@ function Anim:open(animate)
     self:_tween(p.frame, t.bar.time, t.bar.delay,
         { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_OUT, Enum.EasingDirection.Out)
 
+    -- task.delay cannot be cancelled: Unload only stops future work by making
+    -- callbacks check isAlive() themselves, since disconnecting anything here
+    -- would not prevent a pending stage from firing after teardown.
     task.delay(t.height.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
@@ -172,6 +176,7 @@ function Anim:open(animate)
     end)
 
     task.delay(t.contents.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             self:_tween(p.contents, t.contents.time, 0,
                 { Position = self:_home() }, EASE_OUT, Enum.EasingDirection.Out)
@@ -198,6 +203,7 @@ function Anim:close(animate)
         { Position = self:_away() }, EASE_IN, Enum.EasingDirection.In)
 
     task.delay(t.height.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
@@ -206,11 +212,12 @@ function Anim:close(animate)
     end)
 
     task.delay(t.bar.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             local tween = self:_tween(p.frame, t.bar.time, 0,
                 { Size = UDim2.fromOffset(0, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
             tween.Completed:Connect(function()
-                if self._guard:isCurrent(token) then
+                if self._guard:isCurrent(token) and self._root:isAlive() then
                     p.contents.Visible = false
                 end
             end)
@@ -640,6 +647,7 @@ function Root.new(opts)
     local self = setmetatable({
         _junk = {},
         _degraded = {},
+        _alive = true,
         parentKind = parentKind,
         theme = Theme.new(opts),
     }, Root)
@@ -704,6 +712,13 @@ function Root:isDegraded(feature)
     return self._degraded[feature] ~= nil
 end
 
+-- task.delay cannot be cancelled, so deferred callbacks scheduled before an
+-- Unload can still fire afterwards; they must check this explicitly instead
+-- of relying on the junk list to have stopped them.
+function Root:isAlive()
+    return self._alive
+end
+
 function Root:_startHeartbeat()
     local clock = 0
     local conn = game:GetService("RunService").RenderStepped:Connect(function(dt)
@@ -727,6 +742,7 @@ function Root:onFrame(fn)
 end
 
 function Root:Unload()
+    self._alive = false
     for i = #self._junk, 1, -1 do
         pcall(self._junk[i])
     end
@@ -1188,6 +1204,7 @@ function Window:close()
     -- +0.01 is a deliberate one-frame margin so the pause lands just after the
     -- final tween completes rather than racing it.
     task.delay(Anim.closeDuration() + 0.01, function()
+        if not self._root:isAlive() then return end
         if not self._anim:isOpen() then
             self._backdrop:setPaused(true)
         end

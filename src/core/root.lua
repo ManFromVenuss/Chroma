@@ -41,6 +41,7 @@ function Root.new(opts)
     local self = setmetatable({
         _junk = {},
         _degraded = {},
+        _alive = true,
         parentKind = parentKind,
         theme = Theme.new(opts),
     }, Root)
@@ -105,6 +106,13 @@ function Root:isDegraded(feature)
     return self._degraded[feature] ~= nil
 end
 
+-- task.delay cannot be cancelled, so deferred callbacks scheduled before an
+-- Unload can still fire afterwards; they must check this explicitly instead
+-- of relying on the junk list to have stopped them.
+function Root:isAlive()
+    return self._alive
+end
+
 function Root:_startHeartbeat()
     local clock = 0
     local conn = game:GetService("RunService").RenderStepped:Connect(function(dt)
@@ -128,6 +136,7 @@ function Root:onFrame(fn)
 end
 
 function Root:Unload()
+    self._alive = false
     for i = #self._junk, 1, -1 do
         pcall(self._junk[i])
     end

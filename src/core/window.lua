@@ -250,6 +250,7 @@ function Window:close()
     -- +0.01 is a deliberate one-frame margin so the pause lands just after the
     -- final tween completes rather than racing it.
     task.delay(Anim.closeDuration() + 0.01, function()
+        if not self._root:isAlive() then return end
         if not self._anim:isOpen() then
             self._backdrop:setPaused(true)
         end

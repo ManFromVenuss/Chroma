@@ -147,7 +147,11 @@ function Anim:open(animate)
     self:_tween(p.frame, t.bar.time, t.bar.delay,
         { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_OUT, Enum.EasingDirection.Out)
 
+    -- task.delay cannot be cancelled: Unload only stops future work by making
+    -- callbacks check isAlive() themselves, since disconnecting anything here
+    -- would not prevent a pending stage from firing after teardown.
     task.delay(t.height.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
@@ -156,6 +160,7 @@ function Anim:open(animate)
     end)
 
     task.delay(t.contents.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             self:_tween(p.contents, t.contents.time, 0,
                 { Position = self:_home() }, EASE_OUT, Enum.EasingDirection.Out)
@@ -182,6 +187,7 @@ function Anim:close(animate)
         { Position = self:_away() }, EASE_IN, Enum.EasingDirection.In)
 
     task.delay(t.height.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             local liveFull = p.fullSize()
             self:_tween(p.frame, t.height.time, 0,
@@ -190,11 +196,12 @@ function Anim:close(animate)
     end)
 
     task.delay(t.bar.delay, function()
+        if not self._root:isAlive() then return end
         self._guard:run(token, function()
             local tween = self:_tween(p.frame, t.bar.time, 0,
                 { Size = UDim2.fromOffset(0, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
             tween.Completed:Connect(function()
-                if self._guard:isCurrent(token) then
+                if self._guard:isCurrent(token) and self._root:isAlive() then
                     p.contents.Visible = false
                 end
             end)
