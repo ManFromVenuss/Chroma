@@ -60,6 +60,57 @@ function M.new(root, opts)
     frame.Parent = root.windowLayer
     self._frame = root:keep(frame)
 
+    -- Crisp 1px accent outline on the window itself. ClipsDescendants only
+    -- clips frame's CHILDREN, not its own border, so this is safe here (unlike
+    -- the glow below, which cannot live inside frame).
+    local frameStroke = Instance.new("UIStroke")
+    frameStroke.Thickness = 1
+    frameStroke.Parent = frame
+    theme:bind(frameStroke, "Color", "Accent")
+
+    --== glow: a soft bloom behind the window ==--
+    -- Must be a SIBLING of frame (parented to windowLayer), not a child: frame
+    -- has ClipsDescendants = true for the slide animation, which would cut the
+    -- glow off at the window's own edge and defeat the point of it.
+    local glow = Instance.new("Frame")
+    glow.Name = "windowGlow"
+    glow.BackgroundTransparency = 1
+    glow.BorderSizePixel = 0
+    -- Below frame's (default) ZIndex of 1, so it renders behind the window.
+    -- No Active set (defaults false): it must never intercept input.
+    glow.ZIndex = 0
+    glow.Parent = root.windowLayer
+    self._glow = root:keep(glow)
+
+    local glowInner = Instance.new("Frame")
+    glowInner.Name = "inner"
+    glowInner.BackgroundTransparency = 1
+    glowInner.BorderSizePixel = 0
+    glowInner.Size = UDim2.fromScale(1, 1)
+    glowInner.ZIndex = 0
+    glowInner.Parent = glow
+    local glowInnerStroke = Instance.new("UIStroke")
+    glowInnerStroke.Thickness = 2
+    glowInnerStroke.Transparency = 0.55
+    glowInnerStroke.Parent = glowInner
+    theme:bind(glowInnerStroke, "Color", "Accent")
+
+    local glowOuter = Instance.new("Frame")
+    glowOuter.Name = "outer"
+    glowOuter.BackgroundTransparency = 1
+    glowOuter.BorderSizePixel = 0
+    -- Inset outward a bit further than the inner step, so the two strokes read
+    -- as a falloff rather than a second hard border.
+    glowOuter.Size = UDim2.new(1, 6, 1, 6)
+    glowOuter.Position = UDim2.new(0, -3, 0, -3)
+    glowOuter.ZIndex = 0
+    glowOuter.Parent = glow
+    local glowOuterStroke = Instance.new("UIStroke")
+    glowOuterStroke.Thickness = 5
+    glowOuterStroke.Transparency = 0.85
+    glowOuterStroke.Parent = glowOuter
+    theme:bind(glowOuterStroke, "Color", "Accent")
+
     --== title bar: its own strip, translucent, detached by a gap ==--
     local bar = Instance.new("Frame")
     bar.Name = "titlebar"
@@ -169,17 +220,40 @@ function M.new(root, opts)
         return Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
     end)
 
+    -- The grip is now an L outline hugging the corner rather than a filled
+    -- square: the TextButton stays exactly as it was (same size/position, same
+    -- drag wiring below) as the hit area, but becomes fully transparent, and
+    -- two thin accent bars drawn on top of it form the visible corner.
     local grip = Instance.new("TextButton")
     grip.Name = "grip"
     grip.Size = UDim2.fromOffset(12, 12)
     grip.Position = UDim2.new(1, -13, 1, -13)
-    grip.BackgroundTransparency = 0.35
+    grip.BackgroundTransparency = 1
     grip.BorderSizePixel = 0
     grip.Text = ""
     grip.AutoButtonColor = false
     grip.ZIndex = 30
     grip.Parent = contents
-    theme:bind(grip, "BackgroundColor3", "Accent")
+
+    local gripBottom = Instance.new("Frame")
+    gripBottom.Name = "gripBottom"
+    gripBottom.Size = UDim2.new(1, 0, 0, 2)
+    gripBottom.Position = UDim2.new(0, 0, 1, -2)
+    gripBottom.BackgroundTransparency = 0.35
+    gripBottom.BorderSizePixel = 0
+    gripBottom.ZIndex = 30
+    gripBottom.Parent = grip
+    theme:bind(gripBottom, "BackgroundColor3", "Accent")
+
+    local gripRight = Instance.new("Frame")
+    gripRight.Name = "gripRight"
+    gripRight.Size = UDim2.new(0, 2, 1, 0)
+    gripRight.Position = UDim2.new(1, -2, 0, 0)
+    gripRight.BackgroundTransparency = 0.35
+    gripRight.BorderSizePixel = 0
+    gripRight.ZIndex = 30
+    gripRight.Parent = grip
+    theme:bind(gripRight, "BackgroundColor3", "Accent")
 
     self:_makeDragHandle(grip, function(delta, start)
         -- Read the viewport at drag time, not at construction: the player may
@@ -231,12 +305,31 @@ function M.new(root, opts)
         end
     end))
 
+    -- Only one root:onFrame handler is allowed (Root:onFrame asserts on a
+    -- second registration), so all window per-frame work lives in this one
+    -- callback.
+    local GLOW_PAD = 6
     root:onFrame(function(dt)
         self._backdrop:step(dt)
         local hairColor = ColorSequence.new(
             self._theme:get("HairA"), self._theme:get("HairB"))
         self._hairGradient.Color = hairColor
         self._hairGradientBottom.Color = hairColor
+
+        -- The glow is a sibling, not a child, so it does not move or resize
+        -- with frame automatically; it has to be re-synced every frame to
+        -- follow both the open/close size animation and dragging. Diff
+        -- against the last values written, mirroring theme:apply()'s pattern,
+        -- so a static window costs nothing here.
+        local pos, size = frame.Position, frame.Size
+        if pos ~= self._lastGlowSourcePos or size ~= self._lastGlowSourceSize then
+            self._lastGlowSourcePos = pos
+            self._lastGlowSourceSize = size
+            glow.Position = UDim2.fromOffset(
+                pos.X.Offset - GLOW_PAD, pos.Y.Offset - GLOW_PAD)
+            glow.Size = UDim2.fromOffset(
+                size.X.Offset + GLOW_PAD * 2, size.Y.Offset + GLOW_PAD * 2)
+        end
     end)
 
     self:setSize(size.X, size.Y)
