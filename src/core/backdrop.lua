@@ -12,6 +12,11 @@ local M = {}
 -- shift can never uncover the top of the window.
 function M.computeCover(windowW, windowH, aspect, shift)
     shift = shift or 0
+    -- A negative shift would shrink the oversize factor below the base size
+    -- without moving the offset back up enough, uncovering the bottom edge
+    -- (or the right edge on the width-bound branch). Clamp at 0: this
+    -- function is the single source of truth for the covering invariant.
+    if shift < 0 then shift = 0 end
     if windowW <= 0 or windowH <= 0 then return 0, 0, 0 end
 
     local baseW, baseH

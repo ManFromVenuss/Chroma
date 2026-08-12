@@ -19,7 +19,7 @@ return {
     end,
 
     ["cover always fully covers the window"] = function()
-        for _, size in ipairs({ { 240, 190 }, { 900, 620 }, { 640, 420 }, { 210, 600 } }) do
+        for _, size in ipairs({ { 240, 190 }, { 900, 620 }, { 640, 420 }, { 210, 600 }, { 1200, 400 }, { 900, 300 } }) do
             local w, hh = Backdrop.computeCover(size[1], size[2], ASPECT, 0)
             h.assertTrue(w >= size[1] - 1e-9)
             h.assertTrue(hh >= size[2] - 1e-9)
@@ -48,5 +48,17 @@ return {
         local w, hh = Backdrop.computeCover(0, 0, ASPECT, 0)
         h.assertTrue(w >= 0)
         h.assertTrue(hh >= 0)
+    end,
+
+    ["a negative shift is clamped so the bottom stays covered"] = function()
+        local w, hh, offset = Backdrop.computeCover(360, 270, ASPECT, -0.5)
+        local plainW, plainH, plainOffset = Backdrop.computeCover(360, 270, ASPECT, 0)
+        h.assertNear(w, plainW, 1e-9)
+        h.assertNear(hh, plainH, 1e-9)
+        h.assertNear(offset, plainOffset, 1e-9)
+        -- bottom edge sits at or below the window's bottom
+        h.assertTrue(offset >= 0)
+        -- and the image still covers the full height
+        h.assertTrue(hh >= 270 - 1e-9)
     end,
 }
