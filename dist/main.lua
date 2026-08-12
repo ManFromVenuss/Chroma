@@ -2101,6 +2101,176 @@ function M.format(value, decimals, unit)
     return s
 end
 
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local safecall = require("util/safecall")
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the harness requires this file to reach the maths above.
+local UserInputService
+local GuiService
+
+local Slider = {}
+Slider.__index = Slider
+
+local TRACK_WIDTH = 74
+local TRACK_HEIGHT = 2
+local KNOB_HEIGHT = 8
+local HIT_HEIGHT = 19   -- the row height; a 2px track is impossible to grab
+
+function M.new(root, row, opts)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+    GuiService = GuiService or game:GetService("GuiService")
+
+    local min = opts.Min or 0
+    local max = opts.Max or 100
+    if min >= max then
+        -- A programming mistake that can only produce a slider which never
+        -- moves. Failing at build time is kinder than debugging it later.
+        error(string.format(
+            "chroma: slider '%s' has Min (%s) >= Max (%s)",
+            tostring(opts.Name), tostring(min), tostring(max)), 2)
+    end
+
+    local theme = root.theme
+
+    local value = Instance.new("TextLabel")
+    value.Name = "value"
+    value.AnchorPoint = Vector2.new(1, 0.5)
+    value.Position = UDim2.new(1, 0, 0.5, 0)
+    value.Size = UDim2.fromOffset(30, 12)
+    value.BackgroundTransparency = 1
+    value.Font = Enum.Font.Ubuntu
+    value.TextSize = 11
+    value.TextXAlignment = Enum.TextXAlignment.Right
+    value.Parent = row.control
+    theme:bind(value, "TextColor3", "TextDim")
+
+    local track = Instance.new("Frame")
+    track.Name = "track"
+    track.AnchorPoint = Vector2.new(1, 0.5)
+    track.Position = UDim2.new(1, -34, 0.5, 0)
+    track.Size = UDim2.fromOffset(TRACK_WIDTH, TRACK_HEIGHT)
+    track.BorderSizePixel = 0
+    track.Parent = row.control
+    theme:bind(track, "BackgroundColor3", "FieldBorder")
+
+    local fill = Instance.new("Frame")
+    fill.Name = "fill"
+    fill.Size = UDim2.fromScale(0, 1)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    theme:bind(fill, "BackgroundColor3", "Accent")
+
+    local knob = Instance.new("Frame")
+    knob.Name = "knob"
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.fromScale(0, 0.5)
+    knob.Size = UDim2.fromOffset(2, KNOB_HEIGHT)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 2
+    knob.Parent = track
+    theme:bind(knob, "BackgroundColor3", "Accent")
+
+    -- A taller invisible button over the track: a 2px target is unusable, and
+    -- this is also what makes click-to-jump land where you clicked. Its height
+    -- is a constant, NOT read from AbsoluteSize, which is zero until the frame
+    -- has rendered once.
+    local hit = Instance.new("TextButton")
+    hit.Name = "hit"
+    hit.AnchorPoint = Vector2.new(0.5, 0.5)
+    hit.Position = UDim2.fromScale(0.5, 0.5)
+    hit.Size = UDim2.new(1, 8, 0, HIT_HEIGHT)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.AutoButtonColor = false
+    hit.ZIndex = 3
+    hit.Parent = track
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _track = track,
+        _fill = fill,
+        _knob = knob,
+        _value = value,
+        _min = min,
+        _max = max,
+        _decimals = opts.Decimals or 0,
+        _unit = opts.Unit,
+        _label = opts.Name or "Slider",
+        _callback = opts.Callback,
+        _listeners = {},
+        _current = min,
+    }, Slider)
+
+    local dragging = false
+
+    local function applyFromMouse()
+        local mouse = UserInputService:GetMouseLocation()
+        local inset = GuiService:GetGuiInset()
+        -- GetMouseLocation is true-screen; AbsolutePosition sits below the GUI
+        -- inset. Mixing them without this correction shifts the whole track.
+        local left = track.AbsolutePosition.X + inset.X
+        local width = track.AbsoluteSize.X
+        local fraction = width > 0 and (mouse.X - left) / width or 0
+        self:Set(M.valueAt(fraction, self._min, self._max, self._decimals))
+    end
+
+    root:keep(hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            applyFromMouse()   -- click-to-jump
+        end
+    end))
+
+    root:keep(UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            applyFromMouse()
+        end
+    end))
+
+    root:keep(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end))
+
+    self:Set(opts.Default or min, true)
+    return self
+end
+
+function Slider:Get()
+    return self._current
+end
+
+function Slider:Set(v, silent)
+    if type(v) ~= "number" then return end
+    local rounded = M.valueAt(
+        M.fractionOf(v, self._min, self._max), self._min, self._max, self._decimals)
+    local changed = rounded ~= self._current
+    self._current = rounded
+
+    local fraction = M.fractionOf(rounded, self._min, self._max)
+    self._fill.Size = UDim2.fromScale(fraction, 1)
+    self._knob.Position = UDim2.fromScale(fraction, 0.5)
+    self._value.Text = M.format(rounded, self._decimals, self._unit)
+
+    if silent or not changed then return end
+    safecall.call(self._label, self._callback, rounded)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], rounded)
+    end
+end
+
+function Slider:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Slider:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
 return M
 end
 
