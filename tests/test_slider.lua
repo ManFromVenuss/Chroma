@@ -44,7 +44,7 @@ return {
         h.assertNear(Slider.valueAt(2, 0, 90, 0), 90)
     end,
 
-    ["valueAt rounds negative values away from zero at .5"] = function()
+    ["valueAt rounds negative halves toward zero"] = function()
         h.assertNear(Slider.valueAt(0.5, -9, 0, 0), -4)
     end,
 
@@ -57,5 +57,14 @@ return {
         h.assertEqual(Slider.format(20, 0, "°"), "20°")
         h.assertEqual(Slider.format(0.5, 2, ""), "0.50")
         h.assertEqual(Slider.format(7, 0, nil), "7")
+    end,
+
+    ["format normalises a bad decimals rather than throwing"] = function()
+        h.assertEqual(Slider.format(1, -1, ""), "1")
+        h.assertEqual(Slider.format(1, 1.5, ""), "1.0")
+    end,
+
+    ["valueAt normalises a bad decimals rather than misbehaving"] = function()
+        h.assertNear(Slider.valueAt(0.5, 0, 9, -1), 5)
     end,
 }
