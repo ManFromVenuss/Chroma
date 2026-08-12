@@ -59,8 +59,12 @@ pistols:Slider({ Name = "Hitchance", Min = 0, Max = 100, Default = 62, Unit = "%
 local visuals = Win:Page({ Name = "Visuals" })
 local vl, vr = visuals:Column(), visuals:Column()
 
+-- 22 rows at 19px, plus the container title and padding, comes to roughly 450px
+-- against ~374px of visible column at the default 640x420 window -- so this
+-- genuinely overflows. 14 rows did not, which would have made the scrolling
+-- check prove nothing.
 local esp = vl:Container("Players")
-for i = 1, 14 do
+for i = 1, 22 do
     esp:Toggle({ Name = "Option " .. i, Default = i % 3 == 0,
         Description = i % 4 == 0 and ("Description for option " .. i ..
             ", long enough to wrap across more than one line in the tooltip.") or nil })
