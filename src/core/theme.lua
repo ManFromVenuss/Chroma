@@ -92,12 +92,16 @@ function Theme:setAccent(accent)
     self:_recompute(self._clock or 0)
 end
 
+-- Mutates the stored palette only; existing bindings keep their old colour
+-- until the caller calls apply().
 function Theme:setPalette(overrides)
     for key, value in pairs(overrides) do
         self._stored[key] = value
     end
 end
 
+-- Mutates the transparency table only; already-bound transparency writes are
+-- not revisited, the caller must call apply() (or re-bind) to repaint.
 function Theme:setTransparency(key, value)
     self._transparency[key] = value
 end
@@ -139,10 +143,26 @@ function Theme:transparency(key)
     return self._transparency[key] or 0
 end
 
-function Theme:bind(object, property, key)
-    table.insert(self._bindings, {
-        object = object, property = property, key = key,
-    })
+-- Registers a binding and paints it immediately, using the same diff check
+-- apply() uses. This matters because the heartbeat only calls apply() while
+-- the accent is animating; a static-accent surface would otherwise never be
+-- coloured until something unrelated triggered a repaint.
+-- If a fourth argument is given, it names a property to receive the key's
+-- transparency. That write happens once, here, and is never re-diffed by
+-- apply(): transparency values are static per key, so they are not added to
+-- the binding list.
+function Theme:bind(object, property, key, transparencyProperty)
+    local binding = { object = object, property = property, key = key }
+    table.insert(self._bindings, binding)
+
+    local want = self:get(key)
+    if want ~= nil and object[property] ~= want then
+        object[property] = want
+    end
+
+    if transparencyProperty ~= nil then
+        object[transparencyProperty] = self:transparency(key)
+    end
 end
 
 function Theme:unbind(object)

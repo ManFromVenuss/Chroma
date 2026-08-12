@@ -113,6 +113,29 @@ return {
         h.assertTrue(t:get("Accent") == Color3.new(0, 1, 0))
     end,
 
+    ["bind paints immediately without waiting for apply"] = function()
+        local t = Theme.new({ Accent = Color3.new(1, 0, 0) })
+        local obj = h.fakeInstance({ BackgroundColor3 = Color3.new(0, 0, 0) })
+        t:bind(obj, "BackgroundColor3", "Accent")
+        h.assertTrue(obj.BackgroundColor3 == Color3.new(1, 0, 0))
+    end,
+
+    ["bind writes the key's transparency when given a property for it"] = function()
+        local t = Theme.new()
+        local obj = h.fakeInstance({
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 0,
+        })
+        t:bind(obj, "BackgroundColor3", "TitleBar", "BackgroundTransparency")
+        h.assertNear(obj.BackgroundTransparency, 0.35)
+        local plain = h.fakeInstance({
+            BackgroundColor3 = Color3.new(0, 0, 0),
+            BackgroundTransparency = 0,
+        })
+        t:bind(plain, "BackgroundColor3", "Container")
+        h.assertNear(plain.BackgroundTransparency, 0)
+    end,
+
     ["unbinding an object stops it being written"] = function()
         local t = Theme.new({ Accent = Color3.new(1, 0, 0) })
         local obj = h.fakeInstance({ BackgroundColor3 = Color3.new(0, 0, 0) })
