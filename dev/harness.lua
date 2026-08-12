@@ -14,22 +14,16 @@ end
 -- is no way to reach it -- the first in-game run leaked exactly that way.
 getgenv().__chromaDev = function() pcall(function() Chroma:Unload() end) end
 
--- The default backdrop decal (rbxassetid://122415002143640) does not resolve.
--- Verified in-game: it renders blank while a local file and a known-good asset
--- both render. Until that is sorted, dev runs against the local PNG.
--- getcustomasset is per-machine, so this override belongs here, never in src/.
-local backdrop = nil
-if isfile and isfile("chroma_bd_night.png") then
-    backdrop = getcustomasset("chroma_bd_night.png")
-end
-
+-- No Backdrop override: the library's own default asset is verified working, so
+-- dev runs on exactly what a consumer would get. Confirmed in-game by rendering
+-- the image id, its wrapping decal id and the local PNG side by side -- the
+-- image id and the local file matched, the decal id was blank.
 local Win = Chroma:Window({
     Name = "CHROMA",
     Size = Vector2.new(640, 420),
     ToggleKey = Enum.KeyCode.Insert,
     Accent = "RGB",
     AccentSpeed = 0.15,
-    Backdrop = backdrop and { Image = backdrop } or nil,
 })
 
 print("[Chroma dev] version", Chroma.version)
