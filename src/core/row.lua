@@ -11,7 +11,11 @@ M.CONTROL_WIDTH = 110   -- fits a 74px slider track plus its value text
 M.ICON_SIZE = 11
 
 -- opts: Name, Description, Height (optional override)
-function M.new(root, parent, opts)
+-- fullWidth: true for widgets with no control slot (Label, Separator), which
+-- span the whole row. The row must handle this itself rather than a widget
+-- resizing row.label after the fact -- a widget must not resize the row it
+-- was handed, that would put layout logic back inside widget modules.
+function M.new(root, parent, opts, fullWidth)
     local theme = root.theme
     local height = opts.Height or M.HEIGHT
 
@@ -35,7 +39,17 @@ function M.new(root, parent, opts)
     label.Name = "label"
     label.BackgroundTransparency = 1
     label.Position = UDim2.fromOffset(0, 0)
-    label.Size = UDim2.new(1, -labelRight, 1, 0)
+    if fullWidth then
+        -- No control slot to reserve space for; the icon (if any) still needs
+        -- its own space carved out of the label's width.
+        if hasIcon then
+            label.Size = UDim2.new(1, -(M.ICON_SIZE + 8), 1, 0)
+        else
+            label.Size = UDim2.new(1, 0, 1, 0)
+        end
+    else
+        label.Size = UDim2.new(1, -labelRight, 1, 0)
+    end
     label.Font = Enum.Font.Ubuntu
     label.TextSize = 12
     label.TextXAlignment = Enum.TextXAlignment.Left
@@ -49,7 +63,12 @@ function M.new(root, parent, opts)
         icon = Instance.new("TextButton")
         icon.Name = "help"
         icon.AnchorPoint = Vector2.new(1, 0.5)
-        icon.Position = UDim2.new(1, -M.CONTROL_WIDTH, 0.5, 0)
+        if fullWidth then
+            -- No control slot to sit left of; anchor to the row's own edge.
+            icon.Position = UDim2.new(1, 0, 0.5, 0)
+        else
+            icon.Position = UDim2.new(1, -M.CONTROL_WIDTH, 0.5, 0)
+        end
         icon.Size = UDim2.fromOffset(M.ICON_SIZE, M.ICON_SIZE)
         icon.BackgroundTransparency = 1
         icon.AutoButtonColor = false
@@ -65,30 +84,38 @@ function M.new(root, parent, opts)
         theme:bind(iconStroke, "Color", "FieldBorder")
 
         -- Tint to the accent on hover, so the icon reads as interactive before
-        -- the tooltip appears. Written directly rather than through theme:bind
-        -- because the colour depends on hover state, not only on the palette:
-        -- the hovered icon therefore holds one accent colour instead of
-        -- cycling, which is fine for the second or so it is hovered.
+        -- the tooltip appears. Rebind rather than write directly: theme:apply()
+        -- runs every frame off the window's heartbeat while the accent
+        -- animates, so a binding keeps cycling with it for free instead of
+        -- freezing at whatever hue was current on MouseEnter. bind() paints
+        -- immediately, so there is no flash between unbinding and rebinding.
         root:keep(icon.MouseEnter:Connect(function()
-            icon.TextColor3 = theme:get("Accent")
-            iconStroke.Color = theme:get("Accent")
+            theme:unbind(icon)
+            theme:unbind(iconStroke)
+            theme:bind(icon, "TextColor3", "Accent")
+            theme:bind(iconStroke, "Color", "Accent")
         end))
         root:keep(icon.MouseLeave:Connect(function()
-            icon.TextColor3 = theme:get("TextDim")
-            iconStroke.Color = theme:get("FieldBorder")
+            theme:unbind(icon)
+            theme:unbind(iconStroke)
+            theme:bind(icon, "TextColor3", "TextDim")
+            theme:bind(iconStroke, "Color", "FieldBorder")
         end))
 
         root.tooltip:attach(icon, opts.Description)
     end
 
-    local control = Instance.new("Frame")
-    control.Name = "control"
-    control.AnchorPoint = Vector2.new(1, 0)
-    control.Position = UDim2.new(1, 0, 0, 0)
-    control.Size = UDim2.new(0, M.CONTROL_WIDTH, 1, 0)
-    control.BackgroundTransparency = 1
-    control.BorderSizePixel = 0
-    control.Parent = row
+    local control
+    if not fullWidth then
+        control = Instance.new("Frame")
+        control.Name = "control"
+        control.AnchorPoint = Vector2.new(1, 0)
+        control.Position = UDim2.new(1, 0, 0, 0)
+        control.Size = UDim2.new(0, M.CONTROL_WIDTH, 1, 0)
+        control.BackgroundTransparency = 1
+        control.BorderSizePixel = 0
+        control.Parent = row
+    end
 
     return { frame = row, label = label, icon = icon, control = control }
 end
