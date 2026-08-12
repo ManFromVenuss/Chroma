@@ -1008,12 +1008,19 @@ function M.new(root, opts)
     -- Frame keeps AnchorPoint (0,0) forever: it is the drag origin AND the
     -- animation origin, so the two can never disagree.
     local viewport = workspace.CurrentCamera.ViewportSize
+    -- ViewportSize is screen space; Position is parent (windowLayer) space.
+    -- The layer's ScreenGui sets IgnoreGuiInset = true, so the layer's origin
+    -- sits `inset` above the screen origin, and layer.AbsolutePosition.Y is
+    -- that inset as a negative offset (e.g. -58). Subtracting it here cancels
+    -- the offset instead of hardcoding a GUI inset that isn't constant across
+    -- setups (topbar height varies with platform/device).
+    local layerOffset = root.windowLayer.AbsolutePosition
     local frame = Instance.new("Frame")
     frame.Name = "window"
     frame.AnchorPoint = Vector2.new(0, 0)
     frame.Position = UDim2.fromOffset(
-        math.floor(viewport.X / 2 - size.X / 2),
-        math.floor(viewport.Y / 2 - size.Y / 2))
+        math.floor(viewport.X / 2 - size.X / 2 - layerOffset.X),
+        math.floor(viewport.Y / 2 - size.Y / 2 - layerOffset.Y))
     frame.Size = UDim2.fromOffset(size.X, size.Y)
     frame.BackgroundTransparency = 1
     frame.BorderSizePixel = 0
@@ -1104,7 +1111,15 @@ function M.new(root, opts)
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)
         frame.Position = UDim2.fromOffset(start.X + delta.X, start.Y + delta.Y)
-    end, function() return frame.AbsolutePosition end)
+    end, function()
+        -- AbsolutePosition is screen space; Position is parent space. With
+        -- IgnoreGuiInset = true the window layer sits `inset` above the
+        -- screen origin, so those two spaces differ by the GUI inset. Reading
+        -- AbsolutePosition here but writing Position above teleported the
+        -- window by the inset on every mouse-down. Read from the same space
+        -- we write to instead.
+        return Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
+    end)
 
     local grip = Instance.new("TextButton")
     grip.Name = "grip"
