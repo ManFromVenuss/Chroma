@@ -34,15 +34,18 @@ end
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
 local IMAGE_ASPECT = 1024 / 576
--- "forest background", uploaded 2026-08-12, moderation state Completed.
+-- "forest background" -- the IMAGE (AssetTypeId 1), not the Decal that wraps it.
 --
--- NOT YET VERIFIED IN-GAME. This is AssetTypeId 13 (a Decal), not 1 (an Image).
--- If it renders blank, pull the underlying image id out of the decal with:
---     getobjects("rbxassetid://107511224967802")[1].Texture
--- and use that id instead. The previous default (122415002143640) did render
--- blank, but it was tested minutes after upload while moderation was probably
--- still pending -- so that test did not actually establish that decal ids fail.
-local DEFAULT_IMAGE = "rbxassetid://107511224967802"
+-- Use the texture id, never the decal id. Uploading an image to Roblox creates
+-- two assets: a Decal (type 13) and the Image (type 1) it points at. An
+-- ImageLabel needs the Image. The Creator Store page shows the decal id; the
+-- "copy texture ID" button gives this one. Recoverable in-game too, via
+-- getobjects("rbxassetid://<decal>")[1].Texture.
+--
+-- The two are moderated SEPARATELY, and the decal clears first: at the time of
+-- writing the decal reported Completed while this image was still Pending. A
+-- Pending image renders blank, which is what made the first upload look broken.
+local DEFAULT_IMAGE = "rbxassetid://109006147881359"
 
 local Backdrop = {}
 Backdrop.__index = Backdrop
