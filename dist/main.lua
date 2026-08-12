@@ -979,6 +979,7 @@ local Cursor = require("core/cursor")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
 local UserInputService
+local GuiService
 
 local M = {}
 
@@ -993,6 +994,7 @@ local MIN_HEIGHT = 190
 
 function M.new(root, opts)
     UserInputService = UserInputService or game:GetService("UserInputService")
+    GuiService = GuiService or game:GetService("GuiService")
 
     opts = opts or {}
     local size = opts.Size or Vector2.new(640, 420)
@@ -1160,7 +1162,16 @@ function M.new(root, opts)
     self._cursor = Cursor.new(root, opts.Cursor, function()
         if not self._anim:isOpen() then return false end
         local pos = UserInputService:GetMouseLocation()
-        local origin = frame.AbsolutePosition
+        -- GetMouseLocation() is true-screen space, but AbsolutePosition is
+        -- measured below the GUI inset (the window layer's ScreenGui sets
+        -- IgnoreGuiInset = true, so AbsolutePosition sits `inset` above the
+        -- screen origin). Comparing them raw offsets the hit rect vertically
+        -- by the inset height (cross stays active above the top edge, dies
+        -- early at the bottom). Add the inset back to shift the rect into
+        -- the mouse's space. Read it every call, not once: it changes when
+        -- the topbar is hidden, on fullscreen toggles, and across devices.
+        local inset = GuiService:GetGuiInset()
+        local origin = frame.AbsolutePosition + inset
         local extent = frame.AbsoluteSize
         return Cursor.hitTest(pos.X, pos.Y, origin.X, origin.Y, extent.X, extent.Y)
     end)
