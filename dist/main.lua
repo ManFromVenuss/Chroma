@@ -21,7 +21,10 @@ __modules["core/anim"] = function(require)
 -- Everything shrinks Size toward that fixed corner; Position is never touched.
 local Guard = require("util/guard")
 
-local TweenService = game:GetService("TweenService")
+-- Resolved lazily in M.new. A module-scope game:GetService() executes on require,
+-- which breaks the Lua 5.4 test harness the moment any suite requires this file --
+-- exactly the failure core/cursor.lua hit.
+local TweenService
 
 local M = {}
 
@@ -52,6 +55,8 @@ Anim.__index = Anim
 -- contents up under the title bar and destroy the gap that makes the bar read as
 -- separate.
 function M.new(root, parts)
+    TweenService = TweenService or game:GetService("TweenService")
+
     local self = setmetatable({
         _root = root,
         _parts = parts,
