@@ -34,7 +34,15 @@ end
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
 local IMAGE_ASPECT = 1024 / 576
-local DEFAULT_IMAGE = "rbxassetid://122415002143640"
+-- "forest background", uploaded 2026-08-12, moderation state Completed.
+--
+-- NOT YET VERIFIED IN-GAME. This is AssetTypeId 13 (a Decal), not 1 (an Image).
+-- If it renders blank, pull the underlying image id out of the decal with:
+--     getobjects("rbxassetid://107511224967802")[1].Texture
+-- and use that id instead. The previous default (122415002143640) did render
+-- blank, but it was tested minutes after upload while moderation was probably
+-- still pending -- so that test did not actually establish that decal ids fail.
+local DEFAULT_IMAGE = "rbxassetid://107511224967802"
 
 local Backdrop = {}
 Backdrop.__index = Backdrop
