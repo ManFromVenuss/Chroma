@@ -902,7 +902,12 @@ function M.new(root, window, opts)
 
     local marker = Instance.new("Frame")
     marker.Name = "marker"
-    marker.Size = UDim2.new(0, 2, 1, 0)
+    -- Overhangs the button by 1px top and bottom: flush with the button, the
+    -- marker reads visibly shorter than the RailActive highlight beside it.
+    -- The 1px each side sits in the 2px gap the rail layout leaves between
+    -- buttons, so it cannot collide with a neighbour.
+    marker.Size = UDim2.new(0, 2, 1, 2)
+    marker.Position = UDim2.fromOffset(0, -1)
     marker.BorderSizePixel = 0
     marker.Visible = false
     marker.Parent = button
@@ -1306,7 +1311,7 @@ local M = {}
 
 M.HEIGHT = 19
 M.CONTROL_WIDTH = 110   -- fits a 74px slider track plus its value text
-M.ICON_SIZE = 11
+M.ICON_SIZE = 12
 
 -- opts: Name, Description, Height (optional override)
 -- fullWidth: true for widgets with no control slot (Label, Separator), which
@@ -1399,8 +1404,11 @@ function M.new(root, parent, opts, fullWidth)
         icon.Size = UDim2.fromOffset(M.ICON_SIZE, M.ICON_SIZE)
         icon.BackgroundTransparency = 1
         icon.AutoButtonColor = false
-        icon.Font = Enum.Font.Ubuntu
-        icon.TextSize = 10
+        -- Code rather than Ubuntu: it is a monospace face designed for small
+        -- sizes and hints far better at 11px, where Ubuntu's '?' goes soft.
+        -- Only the glyph differs; row text stays Ubuntu.
+        icon.Font = Enum.Font.Code
+        icon.TextSize = 11
         icon.Text = "?"
         icon.ZIndex = 4
         icon.Parent = left

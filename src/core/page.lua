@@ -98,7 +98,12 @@ function M.new(root, window, opts)
 
     local marker = Instance.new("Frame")
     marker.Name = "marker"
-    marker.Size = UDim2.new(0, 2, 1, 0)
+    -- Overhangs the button by 1px top and bottom: flush with the button, the
+    -- marker reads visibly shorter than the RailActive highlight beside it.
+    -- The 1px each side sits in the 2px gap the rail layout leaves between
+    -- buttons, so it cannot collide with a neighbour.
+    marker.Size = UDim2.new(0, 2, 1, 2)
+    marker.Position = UDim2.fromOffset(0, -1)
     marker.BorderSizePixel = 0
     marker.Visible = false
     marker.Parent = button
