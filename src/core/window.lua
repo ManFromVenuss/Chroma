@@ -6,6 +6,8 @@
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
+local Page = require("core/page")
+local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
 local UserInputService
@@ -121,8 +123,8 @@ function M.new(root, opts)
     local titleText = Instance.new("TextLabel")
     titleText.Name = "title"
     titleText.BackgroundTransparency = 1
-    titleText.Size = UDim2.new(1, -16, 1, -2)
-    titleText.Position = UDim2.fromOffset(8, 2)
+    titleText.Size = UDim2.new(1, -16, 1, 0)
+    titleText.Position = UDim2.fromOffset(8, 0)
     titleText.Font = Enum.Font.Ubuntu
     titleText.TextSize = 12
     titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -186,6 +188,33 @@ function M.new(root, opts)
     rail.Parent = body
     theme:bind(rail, "BackgroundColor3", "Rail", "BackgroundTransparency")
     self._rail = rail
+
+    local railLayout = Instance.new("UIListLayout")
+    railLayout.FillDirection = Enum.FillDirection.Vertical
+    railLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    railLayout.Padding = UDim.new(0, 2)
+    railLayout.Parent = rail
+
+    local railPad = Instance.new("UIPadding")
+    railPad.PaddingTop = UDim.new(0, 6)
+    railPad.Parent = rail
+
+    -- Everything right of the rail. Pages fill this and show one at a time.
+    local pageArea = Instance.new("Frame")
+    pageArea.Name = "pages"
+    pageArea.Position = UDim2.fromOffset(RAIL_WIDTH, 0)
+    pageArea.Size = UDim2.new(1, -RAIL_WIDTH, 1, 0)
+    pageArea.BackgroundTransparency = 1
+    pageArea.BorderSizePixel = 0
+    pageArea.Parent = body
+    self._pageArea = pageArea
+
+    self._pages = {}
+    self._activePage = nil
+
+    -- The tooltip manager is owned by the window and reached through root, so
+    -- row.lua can attach to it without being handed one explicitly.
+    root.tooltip = Tooltip.new(root)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)
@@ -334,6 +363,37 @@ function Window:setSize(width, height)
         self._frame.Size = UDim2.fromOffset(width, height)
     end
     self._backdrop:resize(width, height - (BAR_HEIGHT + BAR_GAP))
+
+    -- Column widths are explicit pixels, so they must be recomputed whenever
+    -- the window changes size.
+    if self._pages then
+        for i = 1, #self._pages do
+            self._pages[i]:relayout()
+        end
+    end
+end
+
+function Window:Page(opts)
+    local page = Page.new(self._root, self, opts or {})
+    table.insert(self._pages, page)
+    if not self._activePage then
+        self:setActivePage(page)
+    else
+        page:setActive(false)
+    end
+    return page
+end
+
+function Window:setActivePage(page)
+    self._activePage = page
+    for i = 1, #self._pages do
+        self._pages[i]:setActive(self._pages[i] == page)
+    end
+    page:relayout()
+end
+
+function Window:getActivePage()
+    return self._activePage
 end
 
 function Window:open()

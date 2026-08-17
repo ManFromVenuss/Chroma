@@ -446,6 +446,214 @@ end
 return M
 end
 
+__modules["core/column"] = function(require)
+-- A column: the pure width-distribution maths, plus (from a later task) the
+-- ScrollingFrame that holds containers.
+--
+-- widths() is the ONLY place M2 computes a size by hand. Everything else is
+-- AutomaticSize / AutomaticCanvasSize, because UIListLayout cannot express
+-- ratios but can do everything else.
+--
+-- Lua 5.4 / Luau intersection: no compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+-- Distributes totalWidth across #weights columns separated by `gap` pixels.
+-- The final column takes whatever integer pixels are left over, so the columns
+-- always sum exactly to the available space rather than leaving a 1px seam.
+function M.widths(weights, totalWidth, gap)
+    local n = #weights
+    if n == 0 then return {} end
+
+    gap = gap or 0
+    local space = totalWidth - gap * (n - 1)
+    if space < 0 then space = 0 end
+
+    local total = 0
+    for i = 1, n do
+        local w = weights[i]
+        if type(w) == "number" and w > 0 then total = total + w end
+    end
+
+    local out = {}
+    if total <= 0 then
+        -- Every weight was zero or invalid: fall back to an even split rather
+        -- than dividing by zero.
+        for i = 1, n do out[i] = 1 end
+        total = n
+        weights = out
+        out = {}
+    end
+
+    local used = 0
+    for i = 1, n - 1 do
+        local w = weights[i]
+        if type(w) ~= "number" or w <= 0 then w = 0 end
+        local px = math.floor(space * w / total)
+        out[i] = px
+        used = used + px
+    end
+    out[n] = space - used
+    if out[n] < 0 then out[n] = 0 end
+    return out
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local Container = require("core/container")
+
+local Column = {}
+Column.__index = Column
+
+function M.new(root, parent, opts)
+    opts = opts or {}
+    local theme = root.theme
+
+    local frame = Instance.new("ScrollingFrame")
+    frame.Name = "column"
+    frame.Size = UDim2.new(0, 0, 1, 0)   -- width assigned by the owning tab
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+    frame.CanvasSize = UDim2.new()
+    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- There is no Enum.AutomaticCanvasSize.
+    frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    frame.ScrollBarThickness = 2
+    frame.ScrollingDirection = Enum.ScrollingDirection.Y
+    frame.ElasticBehavior = Enum.ElasticBehavior.Never
+    frame.Parent = parent
+    root:keep(frame)
+    theme:bind(frame, "ScrollBarImageColor3", "Accent")
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 8)
+    layout.Parent = frame
+
+    return setmetatable({
+        _root = root,
+        _order = 0,
+        frame = frame,
+        weight = opts.Weight or 1,
+    }, Column)
+end
+
+function Column:Container(title)
+    self._order = self._order + 1
+    local container = Container.new(self._root, self.frame, title)
+    container.holder.LayoutOrder = self._order
+    return container
+end
+
+function Column:setWidth(px)
+    self.frame.Size = UDim2.new(0, px, 1, 0)
+end
+
+return M
+end
+
+__modules["core/container"] = function(require)
+-- A titled section: the title sits OUTSIDE a bordered box, on the backdrop,
+-- as gamesense does. The box height is derived from its rows via
+-- AutomaticSize -- nothing here computes a height.
+
+local Row = require("core/row")
+local widgets = require("widgets/init")
+
+local M = {}
+
+local Container = {}
+Container.__index = Container
+
+function M.new(root, parent, title)
+    local theme = root.theme
+
+    local holder = Instance.new("Frame")
+    holder.Name = "container"
+    holder.Size = UDim2.new(1, 0, 0, 0)
+    holder.AutomaticSize = Enum.AutomaticSize.Y
+    holder.BackgroundTransparency = 1
+    holder.BorderSizePixel = 0
+    holder.Parent = parent
+    root:keep(holder)
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 4)
+    layout.Parent = holder
+
+    local heading = Instance.new("TextLabel")
+    heading.Name = "title"
+    heading.BackgroundTransparency = 1
+    heading.Size = UDim2.new(1, 0, 0, 14)
+    heading.Font = Enum.Font.Ubuntu
+    heading.TextSize = 12
+    heading.TextXAlignment = Enum.TextXAlignment.Left
+    heading.Text = title or ""
+    heading.LayoutOrder = 1
+    heading.Parent = holder
+    theme:bind(heading, "TextColor3", "TextBright")
+
+    local box = Instance.new("Frame")
+    box.Name = "box"
+    box.Size = UDim2.new(1, 0, 0, 0)
+    box.AutomaticSize = Enum.AutomaticSize.Y
+    box.BorderSizePixel = 0
+    box.LayoutOrder = 2
+    box.Parent = holder
+    theme:bind(box, "BackgroundColor3", "Container", "BackgroundTransparency")
+
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Thickness = 1
+    boxStroke.Parent = box
+    theme:bind(boxStroke, "Color", "ContainerBorder")
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 5)
+    pad.PaddingBottom = UDim.new(0, 5)
+    pad.PaddingLeft = UDim.new(0, 7)
+    pad.PaddingRight = UDim.new(0, 7)
+    pad.Parent = box
+
+    local rows = Instance.new("UIListLayout")
+    rows.FillDirection = Enum.FillDirection.Vertical
+    rows.SortOrder = Enum.SortOrder.LayoutOrder
+    rows.Padding = UDim.new(0, 0)
+    rows.Parent = box
+
+    return setmetatable({
+        _root = root,
+        _box = box,
+        _order = 0,
+        holder = holder,
+    }, Container)
+end
+
+-- One method per registered widget, generated rather than written out, so this
+-- file has no per-widget knowledge.
+for name, widget in pairs(widgets) do
+    -- A widget named `new`, `holder` or after any existing method would silently
+    -- clobber it, and the symptom ("containers stopped working") would surface
+    -- nowhere near the registry entry that caused it. Fail at load instead.
+    assert(Container[name] == nil,
+        "chroma: widget name '" .. tostring(name) .. "' collides with an existing Container member")
+
+    Container[name] = function(self, opts)
+        opts = opts or {}
+        self._order = self._order + 1
+        -- widget.FullWidth is a declared property, not a hardcoded list, so
+        -- this stays widget-agnostic.
+        local row = Row.new(self._root, self._box, opts, widget.FullWidth)
+        row.frame.LayoutOrder = self._order
+        return widget.new(self._root, row, opts)
+    end
+end
+
+return M
+end
+
 __modules["core/cursor"] = function(require)
 -- Custom cross cursor. hitTest is pure and unit tested; the DrawingImmediate
 -- rendering is added in a later task.
@@ -587,6 +795,339 @@ end
 function Cursor:setConfig(opts)
     for key, value in pairs(opts) do
         self._cfg[key] = value
+    end
+end
+
+return M
+end
+
+__modules["core/page"] = function(require)
+-- A page: one rail button, an optional sub-tab row, and one or more tabs, each
+-- holding columns.
+--
+-- There is no tab.lua on purpose. A tab is a named list of columns and this
+-- file already owns switching between them; a file existing to hold one table
+-- is a boundary that costs more than it earns.
+
+local Column = require("core/column")
+
+local M = {}
+
+local Page = {}
+Page.__index = Page
+
+local Tab = {}
+Tab.__index = Tab
+
+local SUBTAB_HEIGHT = 24
+local COLUMN_GAP = 8
+local PADDING = 8
+
+--== Tab ==--
+
+function Tab.new(root, page, name)
+    local holder = Instance.new("Frame")
+    holder.Name = "tab_" .. name
+    holder.Size = UDim2.fromScale(1, 1)
+    holder.BackgroundTransparency = 1
+    holder.BorderSizePixel = 0
+    holder.Visible = false
+    holder.Parent = page._columnArea
+    root:keep(holder)
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Horizontal
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, COLUMN_GAP)
+    layout.Parent = holder
+
+    local self = setmetatable({
+        _root = root,
+        _page = page,
+        _columns = {},
+        name = name,
+        holder = holder,
+    }, Tab)
+
+    -- AbsoluteSize is (0, 0) until the holder has rendered once, so columns
+    -- created in the same frame as their page would all be assigned zero width
+    -- -- the same trap that seeded every star particle at the origin in M1.
+    -- Re-laying out whenever the holder's size actually changes is self-healing:
+    -- it covers first render, window resize and page switching in one line,
+    -- without anyone having to remember to call relayout().
+    root:keep(holder:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        self:_layout()
+    end))
+
+    return self
+end
+
+function Tab:Column(opts)
+    local column = Column.new(self._root, self.holder, opts)
+    column.frame.LayoutOrder = #self._columns + 1
+    table.insert(self._columns, column)
+    self:_layout()
+    return column
+end
+
+-- UIListLayout cannot express ratios, so widths are assigned explicitly. The
+-- available width is the column area minus the gaps between columns.
+function Tab:_layout()
+    local n = #self._columns
+    if n == 0 then return end
+    local weights = {}
+    for i = 1, n do weights[i] = self._columns[i].weight end
+    local total = self.holder.AbsoluteSize.X
+    local px = Column.widths(weights, total, COLUMN_GAP)
+    for i = 1, n do
+        self._columns[i]:setWidth(px[i])
+    end
+end
+
+--== Page ==--
+
+function M.new(root, window, opts)
+    local theme = root.theme
+    local name = opts.Name or "Page"
+
+    --== rail button ==--
+    local button = Instance.new("TextButton")
+    button.Name = "railButton"
+    button.Size = UDim2.new(1, 0, 0, 28)
+    button.BackgroundTransparency = 1
+    button.Text = ""
+    button.AutoButtonColor = false
+    button.Parent = window._rail
+    root:keep(button)
+
+    local marker = Instance.new("Frame")
+    marker.Name = "marker"
+    -- Overhangs the button by 1px top and bottom: flush with the button, the
+    -- marker reads visibly shorter than the RailActive highlight beside it.
+    -- The 1px each side sits in the 2px gap the rail layout leaves between
+    -- buttons, so it cannot collide with a neighbour.
+    marker.Size = UDim2.new(0, 2, 1, 2)
+    marker.Position = UDim2.fromOffset(0, -1)
+    marker.BorderSizePixel = 0
+    marker.Visible = false
+    marker.Parent = button
+    theme:bind(marker, "BackgroundColor3", "Accent")
+
+    -- Lucide icon baking is a later milestone. An rbxassetid works for free
+    -- because it is just an Image; anything else falls back to the page name's
+    -- first letter, which is the fallback the library spec already documents.
+    local glyph
+    if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
+        glyph = Instance.new("ImageLabel")
+        glyph.Image = opts.Icon
+        glyph.Size = UDim2.fromOffset(14, 14)
+        glyph.BackgroundTransparency = 1
+    else
+        glyph = Instance.new("TextLabel")
+        glyph.Text = name:sub(1, 1):upper()
+        glyph.Font = Enum.Font.Ubuntu
+        glyph.TextSize = 12
+        glyph.Size = UDim2.fromOffset(14, 14)
+        glyph.BackgroundTransparency = 1
+        theme:bind(glyph, "TextColor3", "TextDim")
+    end
+    glyph.Name = "glyph"
+    glyph.AnchorPoint = Vector2.new(0.5, 0.5)
+    glyph.Position = UDim2.fromScale(0.5, 0.5)
+    glyph.Parent = button
+
+    --== page body ==--
+    local body = Instance.new("Frame")
+    body.Name = "page_" .. name
+    body.Size = UDim2.fromScale(1, 1)
+    body.BackgroundTransparency = 1
+    body.BorderSizePixel = 0
+    body.Visible = false
+    body.Parent = window._pageArea
+    root:keep(body)
+
+    local subtabBar = Instance.new("Frame")
+    subtabBar.Name = "subtabs"
+    subtabBar.Size = UDim2.new(1, 0, 0, SUBTAB_HEIGHT)
+    subtabBar.BackgroundTransparency = 1
+    subtabBar.BorderSizePixel = 0
+    subtabBar.Visible = false
+    subtabBar.Parent = body
+
+    local subtabRule = Instance.new("Frame")
+    subtabRule.Name = "rule"
+    subtabRule.AnchorPoint = Vector2.new(0, 1)
+    subtabRule.Position = UDim2.new(0, 0, 1, 0)
+    subtabRule.Size = UDim2.new(1, 0, 0, 1)
+    subtabRule.BorderSizePixel = 0
+    subtabRule.Parent = subtabBar
+    theme:bind(subtabRule, "BackgroundColor3", "ContainerBorder")
+
+    -- The buttons get their own frame because a UIListLayout arranges EVERY
+    -- child of its parent -- including the 1px rule, which is full width and
+    -- would consume the whole row and push the buttons off the end.
+    local subtabList = Instance.new("Frame")
+    subtabList.Name = "list"
+    subtabList.Size = UDim2.fromScale(1, 1)
+    subtabList.BackgroundTransparency = 1
+    subtabList.BorderSizePixel = 0
+    subtabList.Parent = subtabBar
+
+    local subtabPad = Instance.new("UIPadding")
+    subtabPad.PaddingLeft = UDim.new(0, PADDING)
+    subtabPad.Parent = subtabList
+
+    local subtabLayout = Instance.new("UIListLayout")
+    subtabLayout.FillDirection = Enum.FillDirection.Horizontal
+    subtabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    subtabLayout.Padding = UDim.new(0, 14)
+    subtabLayout.Parent = subtabList
+
+    local columnArea = Instance.new("Frame")
+    columnArea.Name = "columns"
+    columnArea.Position = UDim2.fromOffset(PADDING, PADDING)
+    columnArea.Size = UDim2.new(1, -PADDING * 2, 1, -PADDING * 2)
+    columnArea.BackgroundTransparency = 1
+    columnArea.BorderSizePixel = 0
+    columnArea.Parent = body
+
+    local self = setmetatable({
+        _root = root,
+        _window = window,
+        _theme = theme,
+        _tabs = {},
+        _tabButtons = {},
+        _activeTab = nil,
+        _implicit = nil,
+        _subtabBar = subtabBar,
+        _subtabList = subtabList,
+        _columnArea = columnArea,
+        _button = button,
+        _marker = marker,
+        _glyph = glyph,
+        name = name,
+        body = body,
+    }, Page)
+
+    root:keep(button.Activated:Connect(function()
+        window:setActivePage(self)
+    end))
+
+    return self
+end
+
+function Page:setActive(active)
+    self.body.Visible = active
+    self._marker.Visible = active
+    self._button.BackgroundTransparency = active and 0 or 1
+    if active then
+        self._theme:unbind(self._button)
+        self._theme:bind(self._button, "BackgroundColor3", "RailActive")
+    else
+        self._theme:unbind(self._button)
+    end
+    if self._glyph:IsA("TextLabel") then
+        self._theme:unbind(self._glyph)
+        self._theme:bind(self._glyph, "TextColor3", active and "TextBright" or "TextDim")
+    end
+end
+
+function Page:Tab(name)
+    -- A page is either tabbed or it is not. Columns added straight to the page
+    -- live in an implicit tab that has no button, so a real tab created
+    -- afterwards would strand them the moment the user switches -- with no way
+    -- back. Nothing sensible to do but refuse.
+    if self._implicit then
+        error(string.format(
+            "chroma: page '%s' already has columns added directly; call :Tab() " ..
+            "before adding any columns, or use :Column() throughout",
+            tostring(self.name)), 2)
+    end
+
+    local tab = Tab.new(self._root, self, name)
+    self._tabs[#self._tabs + 1] = tab
+
+    local button = Instance.new("TextButton")
+    button.Name = "subtab_" .. name
+    button.Size = UDim2.new(0, 0, 1, 0)
+    button.AutomaticSize = Enum.AutomaticSize.X
+    button.BackgroundTransparency = 1
+    button.Font = Enum.Font.Ubuntu
+    button.TextSize = 12
+    button.Text = name
+    button.AutoButtonColor = false
+    button.LayoutOrder = #self._tabs
+    button.Parent = self._subtabList
+    self._root:keep(button)
+
+    local underline = Instance.new("Frame")
+    underline.Name = "underline"
+    underline.AnchorPoint = Vector2.new(0, 1)
+    underline.Position = UDim2.new(0, 0, 1, 0)
+    underline.Size = UDim2.new(1, 0, 0, 2)
+    underline.BorderSizePixel = 0
+    underline.Visible = false
+    underline.ZIndex = 2
+    underline.Parent = button
+    self._theme:bind(underline, "BackgroundColor3", "Accent")
+
+    self._tabButtons[tab] = { button = button, underline = underline }
+
+    self._root:keep(button.Activated:Connect(function()
+        self:setActiveTab(tab)
+    end))
+
+    -- The bar only appears once a page has real tabs; an implicit tab has none.
+    self._subtabBar.Visible = true
+    self._columnArea.Position = UDim2.fromOffset(PADDING, SUBTAB_HEIGHT + PADDING)
+    self._columnArea.Size = UDim2.new(1, -PADDING * 2, 1, -(SUBTAB_HEIGHT + PADDING * 2))
+
+    -- Restyle every tab, not just the first: setActiveTab is what binds each
+    -- button's colour, so a tab added later would otherwise keep Roblox's
+    -- default TextButton colour until something else triggered a restyle.
+    self:setActiveTab(self._activeTab or tab)
+    return tab
+end
+
+function Page:setActiveTab(tab)
+    self._activeTab = tab
+    for i = 1, #self._tabs do
+        local t = self._tabs[i]
+        local parts = self._tabButtons[t]
+        local active = t == tab
+        t.holder.Visible = active
+        if parts then
+            parts.underline.Visible = active
+            self._theme:unbind(parts.button)
+            self._theme:bind(parts.button, "TextColor3",
+                active and "TextBright" or "TextDim")
+        end
+        if active then t:_layout() end
+    end
+end
+
+-- Pages without tabs proxy straight to an implicit one, so a simple page needs
+-- no throwaway :Tab("Main") call.
+function Page:Column(opts)
+    if not self._activeTab then
+        self._implicit = Tab.new(self._root, self, "__implicit")
+        self._tabs[#self._tabs + 1] = self._implicit
+        self._activeTab = self._implicit
+        self._implicit.holder.Visible = true
+    elseif not self._implicit then
+        -- Real tabs exist, so a bare :Column() would land in whichever tab is
+        -- currently active -- fine when there is one, ambiguous when there are
+        -- several, and invisible either way. Make the caller say which.
+        error(string.format(
+            "chroma: page '%s' has sub-tabs; add columns to a tab, not the page",
+            tostring(self.name)), 2)
+    end
+    return self._activeTab:Column(opts)
+end
+
+function Page:relayout()
+    for i = 1, #self._tabs do
+        self._tabs[i]:_layout()
     end
 end
 
@@ -757,6 +1298,203 @@ function Root:Unload()
 end
 
 return Root
+end
+
+__modules["core/row"] = function(require)
+-- A single 19px row: label on the left, optional (?) icon, and a fixed-width
+-- right-aligned control slot that a widget renders into.
+--
+-- This is the boundary that keeps widget modules free of layout code: a widget
+-- is handed `row.control` and knows nothing about rows, containers or columns.
+
+local M = {}
+
+M.HEIGHT = 19
+M.CONTROL_WIDTH = 110   -- fits a 74px slider track plus its value text
+M.ICON_SIZE = 12
+
+-- opts: Name, Description, Height (optional override)
+-- fullWidth: true for widgets with no control slot (Label, Separator), which
+-- span the whole row. The row must handle this itself rather than a widget
+-- resizing row.label after the fact -- a widget must not resize the row it
+-- was handed, that would put layout logic back inside widget modules.
+function M.new(root, parent, opts, fullWidth)
+    local theme = root.theme
+    local height = opts.Height or M.HEIGHT
+
+    local row = Instance.new("Frame")
+    row.Name = "row"
+    row.Size = UDim2.new(1, 0, 0, height)
+    row.BackgroundTransparency = 1
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    root:keep(row)
+
+    local hasIcon = opts.Description ~= nil and opts.Description ~= ""
+
+    -- Left region holds [label][icon] in a horizontal list, so the engine
+    -- does the measuring for icon placement -- no TextBounds read, no
+    -- one-frame timing trap. Chosen over the old fixed-offset placement
+    -- after an in-game A/B comparison: trailing the label reads better than
+    -- every icon lining up in a column.
+    local left = Instance.new("Frame")
+    left.Name = "left"
+    left.BackgroundTransparency = 1
+    left.BorderSizePixel = 0
+    left.Position = UDim2.fromOffset(0, 0)
+    if fullWidth then
+        left.Size = UDim2.new(1, 0, 1, 0)
+    else
+        left.Size = UDim2.new(1, -M.CONTROL_WIDTH, 1, 0)
+    end
+    -- Above the hit button (2) so hover/tooltips on the icon still resolve
+    -- against it. This is easy to undo by accident -- if it regresses to <=2
+    -- the symptom is tooltips silently going dead, far removed from this
+    -- line, so do not "fix" it back down to match the label's old ZIndex.
+    left.ZIndex = 4
+    left.Parent = row
+    root:keep(left)
+
+    local list = Instance.new("UIListLayout")
+    list.FillDirection = Enum.FillDirection.Horizontal
+    list.VerticalAlignment = Enum.VerticalAlignment.Center
+    list.SortOrder = Enum.SortOrder.LayoutOrder
+    list.Padding = UDim.new(0, 5)
+    list.Parent = left
+
+    local label = Instance.new("TextLabel")
+    label.Name = "label"
+    label.BackgroundTransparency = 1
+    label.AutomaticSize = Enum.AutomaticSize.X
+    label.Size = UDim2.new(0, 0, 1, 0)
+    label.LayoutOrder = 1
+    label.Font = Enum.Font.Ubuntu
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    label.Text = opts.Name or ""
+    label.Parent = left
+    theme:bind(label, "TextColor3", "Text")
+
+    -- Cap the label's width so a long name truncates instead of shoving the
+    -- icon into the control slot. left.AbsoluteSize is (0, 0) until the first
+    -- render, so reading it once at construction would set a bogus cap --
+    -- this is the same self-healing pattern used elsewhere in the project:
+    -- set it immediately AND recompute on AbsoluteSize changing.
+    local cap = Instance.new("UISizeConstraint")
+    cap.Parent = label
+    local function updateCap()
+        local maxWidth = left.AbsoluteSize.X
+        if hasIcon then
+            maxWidth = maxWidth - (M.ICON_SIZE + 5)
+        end
+        if maxWidth < 0 then
+            maxWidth = 0
+        end
+        cap.MaxSize = Vector2.new(maxWidth, math.huge)
+    end
+    updateCap()
+    root:keep(left:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateCap))
+
+    local icon
+    if hasIcon then
+        icon = Instance.new("TextButton")
+        icon.Name = "help"
+        icon.LayoutOrder = 2
+        icon.Size = UDim2.fromOffset(M.ICON_SIZE, M.ICON_SIZE)
+        icon.BackgroundTransparency = 1
+        icon.AutoButtonColor = false
+        -- Code rather than Ubuntu: it is a monospace face designed for small
+        -- sizes and hints far better at 11px, where Ubuntu's '?' goes soft.
+        -- Only the glyph differs; row text stays Ubuntu.
+        icon.Font = Enum.Font.Code
+        icon.TextSize = 11
+        icon.Text = "?"
+        icon.ZIndex = 4
+        icon.Parent = left
+        theme:bind(icon, "TextColor3", "TextDim")
+
+        local iconStroke = Instance.new("UIStroke")
+        iconStroke.Thickness = 1
+        iconStroke.Parent = icon
+        theme:bind(iconStroke, "Color", "FieldBorder")
+
+        -- Tint to the accent on hover, so the icon reads as interactive before
+        -- the tooltip appears. Rebind rather than write directly: theme:apply()
+        -- runs every frame off the window's heartbeat while the accent
+        -- animates, so a binding keeps cycling with it for free instead of
+        -- freezing at whatever hue was current on MouseEnter. bind() paints
+        -- immediately, so there is no flash between unbinding and rebinding.
+        root:keep(icon.MouseEnter:Connect(function()
+            theme:unbind(icon)
+            theme:unbind(iconStroke)
+            theme:bind(icon, "TextColor3", "Accent")
+            theme:bind(iconStroke, "Color", "Accent")
+        end))
+        root:keep(icon.MouseLeave:Connect(function()
+            theme:unbind(icon)
+            theme:unbind(iconStroke)
+            theme:bind(icon, "TextColor3", "TextDim")
+            theme:bind(iconStroke, "Color", "FieldBorder")
+        end))
+
+        root.tooltip:attach(icon, opts.Description)
+    end
+
+    local control
+    if not fullWidth then
+        control = Instance.new("Frame")
+        control.Name = "control"
+        control.AnchorPoint = Vector2.new(1, 0)
+        control.Position = UDim2.new(1, 0, 0, 0)
+        control.Size = UDim2.new(0, M.CONTROL_WIDTH, 1, 0)
+        control.BackgroundTransparency = 1
+        control.BorderSizePixel = 0
+        -- Above the hit button (2) so widgets inside it (a slider track, for
+        -- instance) receive their own input instead of the row swallowing it.
+        control.ZIndex = 3
+        control.Parent = row
+    end
+
+    -- A transparent, full-row click target. Widgets that want "click anywhere
+    -- on the row" ask for it via onActivated() below rather than parenting
+    -- their own button into row.frame -- every widget doing that would defeat
+    -- the boundary the control slot exists to enforce. It sits ABOVE the
+    -- label but BELOW the help icon and control slot: ZIndex 2, deliberately
+    -- between icon (4) and control (3) on one side and the label's default of
+    -- 1 on the other. Getting this ordering wrong is exactly how the row used
+    -- to swallow hover input meant for the (?) icon and silently kill
+    -- tooltips -- do not "fix" this back to matching or exceeding 3/4.
+    local hit = Instance.new("TextButton")
+    hit.Name = "hit"
+    hit.Size = UDim2.fromScale(1, 1)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.AutoButtonColor = false
+    hit.ZIndex = 2
+    hit.Parent = row
+
+    local api = { frame = row, label = label, icon = icon, control = control }
+
+    -- Widgets that need a different row height ask for it rather than writing
+    -- to row.frame themselves. Reaching into Instances the row owns is what
+    -- the control-slot boundary exists to prevent.
+    function api.setHeight(px)
+        row.Size = UDim2.new(1, 0, 0, px)
+    end
+
+    -- Widgets that want "click anywhere on the row" ask for it here rather than
+    -- parenting a button into row.frame themselves. The row owns the layering:
+    -- the hit button deliberately sits BELOW the help icon and the control
+    -- slot, or it would swallow their input and silently kill tooltips.
+    function api.onActivated(fn)
+        root:keep(hit.Activated:Connect(fn))
+    end
+
+    return api
+end
+
+return M
 end
 
 __modules["core/theme"] = function(require)
@@ -957,6 +1695,216 @@ end
 return Theme
 end
 
+__modules["core/tooltip"] = function(require)
+-- Tooltip: the pure placement maths, plus (from a later task) the single reused
+-- frame in the tooltip layer.
+--
+-- place() is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- no compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+M.GAP = 8       -- pixels between the anchor and the tooltip
+M.MARGIN = 8    -- minimum distance from any screen edge
+M.Y_NUDGE = -3  -- lifts the tooltip so its text sits level with the icon, not below it
+
+-- Anchored placement beside `anchor`, flipping left and clamping up as needed.
+--
+-- Everything here is in one coordinate space -- the anchor's -- which is the
+-- quiet advantage of anchoring over following the cursor: GetMouseLocation
+-- never enters the calculation, so the GUI-inset mismatch that caused two M1
+-- bugs cannot happen.
+function M.place(anchor, tip, viewport, gap, margin)
+    gap = gap or M.GAP
+    margin = margin or M.MARGIN
+
+    local x = anchor.x + anchor.w + gap
+    if x + tip.w > viewport.w - margin then
+        x = anchor.x - tip.w - gap
+    end
+    if x < margin then x = margin end
+
+    local y = anchor.y + M.Y_NUDGE
+    if y + tip.h > viewport.h - margin then
+        y = viewport.h - margin - tip.h
+    end
+    if y < margin then y = margin end
+
+    return x, y
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the Lua 5.4 harness requires this file to reach place().
+local UserInputService
+local RunService
+local GuiService
+
+local Tooltip = {}
+Tooltip.__index = Tooltip
+
+local DELAY = 0.15
+local MAX_WIDTH = 220
+
+-- One manager per window, owning ONE reused frame -- the same pooling reasoning
+-- as the star particles. Rows attach to it; they never create tooltips.
+function M.new(root)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+    RunService = RunService or game:GetService("RunService")
+    GuiService = GuiService or game:GetService("GuiService")
+
+    local theme = root.theme
+
+    local frame = Instance.new("Frame")
+    frame.Name = "tooltip"
+    frame.AutomaticSize = Enum.AutomaticSize.Y
+    frame.Size = UDim2.fromOffset(MAX_WIDTH, 0)
+    frame.BorderSizePixel = 0
+    frame.Visible = false
+    frame.ZIndex = 10
+    -- Active stays false and no button is used: the tooltip must NEVER
+    -- intercept input. If it did, a tooltip placed over its own icon would
+    -- steal the pointer, fire MouseLeave on the icon, hide itself, and
+    -- immediately re-trigger -- a hide/show flicker loop.
+    frame.Parent = root.tooltipLayer
+    root:keep(frame)
+    theme:bind(frame, "BackgroundColor3", "Window")
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Parent = frame
+    theme:bind(stroke, "Color", "Accent")
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+    pad.PaddingLeft = UDim.new(0, 6)
+    pad.PaddingRight = UDim.new(0, 6)
+    pad.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Name = "text"
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(1, 0, 0, 0)
+    label.AutomaticSize = Enum.AutomaticSize.Y
+    label.Font = Enum.Font.Ubuntu
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    -- Wrapping is correct HERE and nowhere else in Chroma: this is a standalone
+    -- floating frame, not a child of an auto-sizing container, so a re-flow
+    -- cannot under-size anything around it.
+    label.TextWrapped = true
+    label.ZIndex = 11
+    label.Parent = frame
+    theme:bind(label, "TextColor3", "Text")
+
+    local self = setmetatable({
+        _root = root,
+        _frame = frame,
+        _label = label,
+        _timer = nil,
+        _pendingIcon = nil,
+        _watch = nil,
+        _owner = nil,
+    }, Tooltip)
+
+    -- ONE cleanup closure for the watch connection, registered once. Registering
+    -- per show would grow the junk list on every hover.
+    root:keep(function()
+        if self._watch then
+            self._watch:Disconnect()
+            self._watch = nil
+        end
+    end)
+
+    return self
+end
+
+function Tooltip:_hide()
+    if self._timer then
+        task.cancel(self._timer)
+        self._timer = nil
+    end
+    self._pendingIcon = nil
+    if self._watch then
+        self._watch:Disconnect()
+        self._watch = nil
+    end
+    self._owner = nil
+    self._frame.Visible = false
+end
+
+function Tooltip:_show(icon, text)
+    self._label.Text = text
+    self._owner = icon
+    self._frame.Visible = true
+
+    -- AbsoluteSize is only correct after a render pass, so place on the next
+    -- frame rather than against a stale or zero size.
+    RunService.RenderStepped:Wait()
+    if self._owner ~= icon then return end
+
+    local viewport = workspace.CurrentCamera.ViewportSize
+    local pos, size = icon.AbsolutePosition, icon.AbsoluteSize
+    local x, y = M.place(
+        { x = pos.X, y = pos.Y, w = size.X, h = size.Y },
+        { w = self._frame.AbsoluteSize.X, h = self._frame.AbsoluteSize.Y },
+        { w = viewport.X, h = viewport.Y })
+    -- place() works in screen space (it is derived from AbsolutePosition), but
+    -- Position is parent space, and the tooltip layer sits `inset` above the
+    -- screen origin because the ScreenGui ignores the GUI inset. Subtract the
+    -- layer's own offset or the tooltip floats away from its icon.
+    local layerOrigin = self._frame.Parent.AbsolutePosition
+    self._frame.Position = UDim2.fromOffset(x - layerOrigin.X, y - layerOrigin.Y)
+
+    -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
+    -- is the only genuinely bad failure here. So while one is visible -- and
+    -- only then -- confirm each frame that the pointer is still over the icon.
+    self._watch = RunService.RenderStepped:Connect(function()
+        if not self._owner or not self._owner.Parent then
+            self:_hide()
+            return
+        end
+        local m = UserInputService:GetMouseLocation()
+        local p, s = self._owner.AbsolutePosition, self._owner.AbsoluteSize
+        local inset = GuiService:GetGuiInset()
+        local mx, my = m.X, m.Y
+        local ax, ay = p.X + inset.X, p.Y + inset.Y
+        if mx < ax or mx > ax + s.X or my < ay or my > ay + s.Y then
+            self:_hide()
+        end
+    end)
+end
+
+-- Called by the row builder for every (?) icon that has a description.
+--
+-- The pending timer is tagged with the icon it belongs to (_pendingIcon), and
+-- MouseLeave only tears it down if it's still that icon's timer. This must
+-- not assume any ordering between MouseEnter/MouseLeave firing on different
+-- GuiObjects -- Roblox gives no such guarantee, and a fast sweep across a
+-- column of icons can deliver icon B's Enter before icon A's Leave.
+function Tooltip:attach(icon, text)
+    self._root:keep(icon.MouseEnter:Connect(function()
+        if self._timer then task.cancel(self._timer) end
+        self._pendingIcon = icon
+        self._timer = task.delay(DELAY, function()
+            self._timer = nil
+            self._pendingIcon = nil
+            if not self._root:isAlive() then return end
+            self:_show(icon, text)
+        end)
+    end))
+
+    self._root:keep(icon.MouseLeave:Connect(function()
+        if self._owner == icon or self._pendingIcon == icon then self:_hide() end
+    end))
+end
+
+return M
+end
+
 __modules["core/window"] = function(require)
 -- The window shell: separate translucent title bar, icon rail, body holding the
 -- backdrop, drag, resize, and the open/close animation.
@@ -966,6 +1914,8 @@ __modules["core/window"] = function(require)
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
+local Page = require("core/page")
+local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
 local UserInputService
@@ -1081,8 +2031,8 @@ function M.new(root, opts)
     local titleText = Instance.new("TextLabel")
     titleText.Name = "title"
     titleText.BackgroundTransparency = 1
-    titleText.Size = UDim2.new(1, -16, 1, -2)
-    titleText.Position = UDim2.fromOffset(8, 2)
+    titleText.Size = UDim2.new(1, -16, 1, 0)
+    titleText.Position = UDim2.fromOffset(8, 0)
     titleText.Font = Enum.Font.Ubuntu
     titleText.TextSize = 12
     titleText.TextXAlignment = Enum.TextXAlignment.Left
@@ -1146,6 +2096,33 @@ function M.new(root, opts)
     rail.Parent = body
     theme:bind(rail, "BackgroundColor3", "Rail", "BackgroundTransparency")
     self._rail = rail
+
+    local railLayout = Instance.new("UIListLayout")
+    railLayout.FillDirection = Enum.FillDirection.Vertical
+    railLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    railLayout.Padding = UDim.new(0, 2)
+    railLayout.Parent = rail
+
+    local railPad = Instance.new("UIPadding")
+    railPad.PaddingTop = UDim.new(0, 6)
+    railPad.Parent = rail
+
+    -- Everything right of the rail. Pages fill this and show one at a time.
+    local pageArea = Instance.new("Frame")
+    pageArea.Name = "pages"
+    pageArea.Position = UDim2.fromOffset(RAIL_WIDTH, 0)
+    pageArea.Size = UDim2.new(1, -RAIL_WIDTH, 1, 0)
+    pageArea.BackgroundTransparency = 1
+    pageArea.BorderSizePixel = 0
+    pageArea.Parent = body
+    self._pageArea = pageArea
+
+    self._pages = {}
+    self._activePage = nil
+
+    -- The tooltip manager is owned by the window and reached through root, so
+    -- row.lua can attach to it without being handed one explicitly.
+    root.tooltip = Tooltip.new(root)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)
@@ -1294,6 +2271,37 @@ function Window:setSize(width, height)
         self._frame.Size = UDim2.fromOffset(width, height)
     end
     self._backdrop:resize(width, height - (BAR_HEIGHT + BAR_GAP))
+
+    -- Column widths are explicit pixels, so they must be recomputed whenever
+    -- the window changes size.
+    if self._pages then
+        for i = 1, #self._pages do
+            self._pages[i]:relayout()
+        end
+    end
+end
+
+function Window:Page(opts)
+    local page = Page.new(self._root, self, opts or {})
+    table.insert(self._pages, page)
+    if not self._activePage then
+        self:setActivePage(page)
+    else
+        page:setActive(false)
+    end
+    return page
+end
+
+function Window:setActivePage(page)
+    self._activePage = page
+    for i = 1, #self._pages do
+        self._pages[i]:setActive(self._pages[i] == page)
+    end
+    page:relayout()
+end
+
+function Window:getActivePage()
+    return self._activePage
 end
 
 function Window:open()
@@ -1493,6 +2501,466 @@ function Signal:destroy()
 end
 
 return Signal
+end
+
+__modules["widgets/init"] = function(require)
+-- The single registration point for widgets. container.lua generates its
+-- methods from this map, so it never learns what any individual widget is --
+-- adding a widget in a later milestone is one line here plus one new file.
+
+return {
+    Label = require("widgets/label"),
+    Separator = require("widgets/separator"),
+    Toggle = require("widgets/toggle"),
+    Slider = require("widgets/slider"),
+}
+end
+
+__modules["widgets/label"] = function(require)
+-- A single line of static text spanning the whole row.
+--
+-- Deliberately NOT wrappable. A wrapped label under-sizes its parent because
+-- height only re-syncs when TextBounds fires, and inside an auto-sizing
+-- container that clips the entire section. Two lines means two Labels.
+
+local M = {}
+
+-- Declared for the container: a Label has no control, so the row is built
+-- full-width and no control slot is created. A widget must never resize the
+-- row itself -- that is layout, and layout belongs to row.lua.
+M.FullWidth = true
+
+local Label = {}
+Label.__index = Label
+
+function M.new(root, row, opts)
+    local theme = root.theme
+
+    row.label.Text = opts.Text or ""
+    row.label.TextTruncate = Enum.TextTruncate.AtEnd
+    theme:unbind(row.label)
+    theme:bind(row.label, "TextColor3", opts.Dim and "TextDim" or "Text")
+
+    return setmetatable({ _row = row }, Label)
+end
+
+function Label:Get()
+    return self._row.label.Text
+end
+
+function Label:Set(text)
+    self._row.label.Text = tostring(text)
+end
+
+function Label:OnChanged()
+    -- A label has no user-driven changes; accepted for contract symmetry.
+end
+
+function Label:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
+__modules["widgets/separator"] = function(require)
+-- A 1px rule across the row, optionally with inline centred text.
+
+local M = {}
+
+-- No control slot: a separator spans the row. See label.lua for the rationale.
+M.FullWidth = true
+
+local Separator = {}
+Separator.__index = Separator
+
+function M.new(root, row, opts)
+    local theme = root.theme
+    local text = opts.Text
+
+    row.label.Text = ""
+    row.setHeight(text and 16 or 9)
+
+    local function rule(name)
+        local line = Instance.new("Frame")
+        line.Name = name
+        line.AnchorPoint = Vector2.new(0, 0.5)
+        line.Position = UDim2.new(0, 0, 0.5, 0)
+        line.Size = UDim2.new(1, 0, 0, 1)
+        line.BorderSizePixel = 0
+        line.Parent = row.frame
+        theme:bind(line, "BackgroundColor3", "ContainerBorder")
+        return line
+    end
+
+    local obj = setmetatable({ _row = row }, Separator)
+
+    if not text then
+        rule("line")
+        return obj
+    end
+
+    -- With text: two short rules either side of a centred caption.
+    local left = rule("lineLeft")
+    local right = rule("lineRight")
+
+    local caption = Instance.new("TextLabel")
+    caption.Name = "caption"
+    caption.BackgroundTransparency = 1
+    caption.AnchorPoint = Vector2.new(0.5, 0.5)
+    caption.Position = UDim2.fromScale(0.5, 0.5)
+    caption.Size = UDim2.new(0, 0, 1, 0)
+    caption.AutomaticSize = Enum.AutomaticSize.X
+    caption.Font = Enum.Font.Ubuntu
+    caption.TextSize = 11
+    caption.Text = " " .. text .. " "
+    caption.ZIndex = 2
+    caption.Parent = row.frame
+    theme:bind(caption, "TextColor3", "TextDim")
+
+    -- Size the rules once the caption has measured itself. AbsoluteSize is
+    -- zero until a render pass has run, so a single deferred measurement is
+    -- not enough -- if the row is still zero-width at that moment (e.g. a
+    -- whole menu built before anything has rendered), half computes to 0 and
+    -- both rules stay invisible forever, since nothing would re-measure.
+    -- Instead, measure now and re-measure every time the row's actual width
+    -- changes (first render, window resize, page switch), so it self-heals.
+    local function measure()
+        if not caption.Parent then return end
+        local half = math.max(0, (row.frame.AbsoluteSize.X - caption.AbsoluteSize.X) / 2)
+        left.Size = UDim2.new(0, half, 0, 1)
+        right.Size = UDim2.new(0, half, 0, 1)
+        right.AnchorPoint = Vector2.new(1, 0.5)
+        right.Position = UDim2.new(1, 0, 0.5, 0)
+    end
+
+    measure()
+    root:keep(row.frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(measure))
+
+    return obj
+end
+
+function Separator:Get() return nil end
+function Separator:Set() end
+function Separator:OnChanged() end
+function Separator:SetVisible(visible) self._row.frame.Visible = visible end
+
+return M
+end
+
+__modules["widgets/slider"] = function(require)
+-- Slider: the pure value/fraction maths, plus (from a later task) the 2px track.
+-- The maths half is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- no compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+-- Where `value` sits on the track, as 0..1. Clamped, and safe when min == max.
+function M.fractionOf(value, min, max)
+    if max <= min then return 0 end
+    local f = (value - min) / (max - min)
+    if f < 0 then return 0 end
+    if f > 1 then return 1 end
+    return f
+end
+
+-- The value at 0..1 along the track, rounded to `decimals` places.
+-- Note: `mult` is a float, so borderline values can round the "wrong" way
+-- -- e.g. 0.145 at 2 decimals yields 0.14, since 0.145 * 100 + 0.5 evaluates
+-- to 14.999999999999998 rather than 15. Fixing this needs decimal
+-- arithmetic; not worth it for a slider label being one ulp out.
+function M.valueAt(fraction, min, max, decimals)
+    if fraction < 0 then fraction = 0 end
+    if fraction > 1 then fraction = 1 end
+    local raw = min + (max - min) * fraction
+    -- Decimals is consumer-supplied, so normalise rather than trusting it:
+    -- a negative value would invert the rounding and a fractional one would
+    -- silently produce nonsense.
+    decimals = math.floor(decimals or 0)
+    if decimals < 0 then decimals = 0 end
+    local mult = 10 ^ decimals
+    -- floor(x + 0.5) rounds .5 up for positives and, for negatives, toward
+    -- zero -- which is what a slider should do: dragging to the middle of
+    -- -9..0 lands on -4, not -5.
+    return math.floor(raw * mult + 0.5) / mult
+end
+
+function M.format(value, decimals, unit)
+    -- Decimals is consumer-supplied, so normalise rather than trusting it: a
+    -- negative or fractional value produces an invalid format specification
+    -- and would throw at runtime.
+    decimals = math.floor(decimals or 0)
+    if decimals < 0 then decimals = 0 end
+    local s = string.format("%." .. tostring(decimals) .. "f", value)
+    if unit and unit ~= "" then s = s .. unit end
+    return s
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local safecall = require("util/safecall")
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the harness requires this file to reach the maths above.
+local UserInputService
+local GuiService
+
+local Slider = {}
+Slider.__index = Slider
+
+local TRACK_WIDTH = 74
+local TRACK_HEIGHT = 2
+local KNOB_HEIGHT = 8
+local HIT_HEIGHT = 19   -- the row height; a 2px track is impossible to grab
+
+function M.new(root, row, opts)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+    GuiService = GuiService or game:GetService("GuiService")
+
+    local min = opts.Min or 0
+    local max = opts.Max or 100
+    if min >= max then
+        -- A programming mistake that can only produce a slider which never
+        -- moves. Failing at build time is kinder than debugging it later.
+        error(string.format(
+            "chroma: slider '%s' has Min (%s) >= Max (%s)",
+            tostring(opts.Name), tostring(min), tostring(max)), 2)
+    end
+
+    local theme = root.theme
+
+    local value = Instance.new("TextLabel")
+    value.Name = "value"
+    value.AnchorPoint = Vector2.new(1, 0.5)
+    value.Position = UDim2.new(1, 0, 0.5, 0)
+    value.Size = UDim2.fromOffset(30, 12)
+    value.BackgroundTransparency = 1
+    value.Font = Enum.Font.Ubuntu
+    value.TextSize = 11
+    value.TextXAlignment = Enum.TextXAlignment.Right
+    value.Parent = row.control
+    theme:bind(value, "TextColor3", "TextDim")
+
+    local track = Instance.new("Frame")
+    track.Name = "track"
+    track.AnchorPoint = Vector2.new(1, 0.5)
+    track.Position = UDim2.new(1, -34, 0.5, 0)
+    track.Size = UDim2.fromOffset(TRACK_WIDTH, TRACK_HEIGHT)
+    track.BorderSizePixel = 0
+    track.Parent = row.control
+    theme:bind(track, "BackgroundColor3", "FieldBorder")
+
+    local fill = Instance.new("Frame")
+    fill.Name = "fill"
+    fill.Size = UDim2.fromScale(0, 1)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    theme:bind(fill, "BackgroundColor3", "Accent")
+
+    local knob = Instance.new("Frame")
+    knob.Name = "knob"
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.fromScale(0, 0.5)
+    knob.Size = UDim2.fromOffset(2, KNOB_HEIGHT)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 2
+    knob.Parent = track
+    theme:bind(knob, "BackgroundColor3", "Accent")
+
+    -- A taller invisible button over the track: a 2px target is unusable, and
+    -- this is also what makes click-to-jump land where you clicked. Its height
+    -- is a constant, NOT read from AbsoluteSize, which is zero until the frame
+    -- has rendered once.
+    local hit = Instance.new("TextButton")
+    hit.Name = "hit"
+    hit.AnchorPoint = Vector2.new(0.5, 0.5)
+    hit.Position = UDim2.fromScale(0.5, 0.5)
+    hit.Size = UDim2.new(1, 8, 0, HIT_HEIGHT)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    hit.AutoButtonColor = false
+    hit.ZIndex = 3
+    hit.Parent = track
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _track = track,
+        _fill = fill,
+        _knob = knob,
+        _value = value,
+        _min = min,
+        _max = max,
+        _decimals = opts.Decimals or 0,
+        _unit = opts.Unit,
+        _label = opts.Name or "Slider",
+        _callback = opts.Callback,
+        _listeners = {},
+        _current = min,
+    }, Slider)
+
+    local dragging = false
+
+    local function applyFromMouse()
+        local mouse = UserInputService:GetMouseLocation()
+        local inset = GuiService:GetGuiInset()
+        -- GetMouseLocation is true-screen; AbsolutePosition sits below the GUI
+        -- inset. Mixing them without this correction shifts the whole track.
+        local left = track.AbsolutePosition.X + inset.X
+        local width = track.AbsoluteSize.X
+        local fraction = width > 0 and (mouse.X - left) / width or 0
+        self:Set(M.valueAt(fraction, self._min, self._max, self._decimals))
+    end
+
+    root:keep(hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            applyFromMouse()   -- click-to-jump
+        end
+    end))
+
+    root:keep(UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            applyFromMouse()
+        end
+    end))
+
+    root:keep(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end))
+
+    self:Set(opts.Default or min, true)
+    return self
+end
+
+function Slider:Get()
+    return self._current
+end
+
+function Slider:Set(v, silent)
+    if type(v) ~= "number" then return end
+    local rounded = M.valueAt(
+        M.fractionOf(v, self._min, self._max), self._min, self._max, self._decimals)
+    local changed = rounded ~= self._current
+    self._current = rounded
+
+    local fraction = M.fractionOf(rounded, self._min, self._max)
+    self._fill.Size = UDim2.fromScale(fraction, 1)
+    self._knob.Position = UDim2.fromScale(fraction, 0.5)
+    self._value.Text = M.format(rounded, self._decimals, self._unit)
+
+    if silent or not changed then return end
+    safecall.call(self._label, self._callback, rounded)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], rounded)
+    end
+end
+
+function Slider:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Slider:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
+__modules["widgets/toggle"] = function(require)
+-- A 7px checkbox in the row's control slot. Clicking anywhere on the row
+-- flips it, which is far easier to hit than the box itself.
+
+local safecall = require("util/safecall")
+
+local M = {}
+
+local Toggle = {}
+Toggle.__index = Toggle
+
+local BOX = 7
+
+function M.new(root, row, opts)
+    local theme = root.theme
+
+    local box = Instance.new("Frame")
+    box.Name = "box"
+    box.AnchorPoint = Vector2.new(1, 0.5)
+    box.Position = UDim2.new(1, 0, 0.5, 0)
+    box.Size = UDim2.fromOffset(BOX, BOX)
+    box.BorderSizePixel = 0
+    box.Parent = row.control
+    theme:bind(box, "BackgroundColor3", "Field")
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Parent = box
+    theme:bind(stroke, "Color", "FieldBorder")
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _box = box,
+        _stroke = stroke,
+        _theme = theme,
+        _label = opts.Name or "Toggle",
+        _callback = opts.Callback,
+        _listeners = {},
+        _value = false,
+    }, Toggle)
+
+    -- Click anywhere on the row: a 7px target is unusable. The row owns the
+    -- hit button (and its layering against the help icon), so ask for it
+    -- rather than parenting one into row.frame ourselves.
+    row.onActivated(function()
+        self:Set(not self._value)
+    end)
+
+    self:Set(opts.Default == true, true)
+    return self
+end
+
+function Toggle:_paint()
+    -- Rebind rather than write directly, so the ON state keeps tracking the
+    -- animated accent instead of freezing at the colour it had when clicked.
+    self._theme:unbind(self._box)
+    self._theme:unbind(self._stroke)
+    if self._value then
+        self._theme:bind(self._box, "BackgroundColor3", "Accent")
+        self._theme:bind(self._stroke, "Color", "Accent")
+    else
+        self._theme:bind(self._box, "BackgroundColor3", "Field")
+        self._theme:bind(self._stroke, "Color", "FieldBorder")
+    end
+end
+
+function Toggle:Get()
+    return self._value
+end
+
+function Toggle:Set(value, silent)
+    value = value == true
+    local changed = value ~= self._value
+    self._value = value
+    self:_paint()
+    if silent or not changed then return end
+    safecall.call(self._label, self._callback, value)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], value)
+    end
+end
+
+function Toggle:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Toggle:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
 end
 
 return __require("init")
