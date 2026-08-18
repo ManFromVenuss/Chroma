@@ -3529,24 +3529,26 @@ function M.new(root, row, opts)
     end))
 
     -- Drag handling mirrors the slider's: press to jump, InputChanged to track,
-    -- InputEnded to release. One shared `dragging` target rather than three
-    -- flags, so two areas can never both think they are being dragged.
-    local dragging = nil
+    -- InputEnded to release. One shared `self._dragging` target rather than
+    -- three flags, so two areas can never both think they are being dragged.
+    -- Kept on self, not as an upvalue, so _toggle's popup onClose (below) can
+    -- reach in and cancel a drag that outlives the popup that started it.
+    self._dragging = nil
 
     local function applyFromMouse()
-        if dragging == nil then return end
+        if self._dragging == nil then return end
         local mx, my = root:mouseInGuiSpace()
-        if dragging == "square" then
+        if self._dragging == "square" then
             local p, size = square.AbsolutePosition, square.AbsoluteSize
             local fx = size.X > 0 and (mx - p.X) / size.X or 0
             local fy = size.Y > 0 and (my - p.Y) / size.Y or 0
             self._s = math.clamp(fx, 0, 1)
             self._v = 1 - math.clamp(fy, 0, 1)
-        elseif dragging == "hue" then
+        elseif self._dragging == "hue" then
             local p, size = hueStrip.AbsolutePosition, hueStrip.AbsoluteSize
             local fx = size.X > 0 and (mx - p.X) / size.X or 0
             self._h = math.clamp(fx, 0, 1)
-        elseif dragging == "alpha" and alphaStrip then
+        elseif self._dragging == "alpha" and alphaStrip then
             local p, size = alphaStrip.AbsolutePosition, alphaStrip.AbsoluteSize
             local fx = size.X > 0 and (mx - p.X) / size.X or 0
             self._a = math.clamp(fx, 0, 1)
@@ -3558,7 +3560,7 @@ function M.new(root, row, opts)
     local function grab(target, instance)
         root:keep(instance.InputBegan:Connect(function(input2)
             if input2.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = target
+                self._dragging = target
                 applyFromMouse()
             end
         end))
@@ -3569,14 +3571,14 @@ function M.new(root, row, opts)
     if alphaStrip then grab("alpha", alphaStrip) end
 
     root:keep(UserInputService.InputChanged:Connect(function(input2)
-        if dragging and input2.UserInputType == Enum.UserInputType.MouseMovement then
+        if self._dragging and input2.UserInputType == Enum.UserInputType.MouseMovement then
             applyFromMouse()
         end
     end))
 
     root:keep(UserInputService.InputEnded:Connect(function(input2)
         if input2.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = nil
+            self._dragging = nil
         end
     end))
 
@@ -3643,7 +3645,16 @@ function Colorpicker:_toggle()
         popup:close()
         return
     end
-    popup:open(self, self._popup, self._swatch)
+    -- The popup can close from things other than the swatch click that opened
+    -- it -- bindDismissal routes window drag/reflow straight to popup:close().
+    -- Without this, a hex edit left focused keeps engine-side focus while
+    -- hidden (FocusLost never fires, so _editing never clears and _paint stops
+    -- updating the hex text), and a drag left in progress keeps applying
+    -- against the hidden popup's stale geometry, still firing the callback.
+    popup:open(self, self._popup, self._swatch, function()
+        self._input:ReleaseFocus()
+        self._dragging = nil
+    end)
 end
 
 function Colorpicker:_fire()
