@@ -83,6 +83,34 @@ local narrow = misc:Column()
 wide:Container("Wide column"):Label({ Text = "This column has Weight = 2." })
 narrow:Container("Narrow"):Label({ Text = "Weight = 1." })
 
+--== page 4: M3 phase A widgets ==--
+local m3 = Win:Page({ Name = "Widgets" })
+local ml, mr = m3:Column(), m3:Column()
+
+local picks = ml:Container("Dropdowns")
+local hitbox = picks:Dropdown({ Name = "Hitbox", Options = { "Head", "Torso", "Pelvis", "Arms", "Legs" },
+    Default = "Head",
+    Description = "Single-select: commits and closes on click." })
+local parts = picks:Dropdown({ Name = "Hitboxes", Multi = true,
+    Options = { "Head", "Torso", "Pelvis", "Arms", "Legs" },
+    Default = { "Head", "Torso" },
+    Description = "Multi-select: ticks a checkbox and stays open." })
+-- Ten options forces the 8-row scroll limit.
+picks:Dropdown({ Name = "Long list", Options = {
+    "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten" } })
+
+local entry = mr:Container("Text and buttons")
+local name = entry:TextBox({ Name = "Nickname", Placeholder = "anonymous", Default = "venuss" })
+local count = entry:TextBox({ Name = "Rounds", Numeric = true, Default = "30" })
+entry:Button({ Text = "Print widget state", Callback = function()
+    print("[Chroma dev] hitbox:", hitbox:Get())
+    print("[Chroma dev] parts:", table.concat(parts:Get(), ", "))
+    print("[Chroma dev] name:", name:Get(), "count:", count:Get(), type(count:Get()))
+end })
+entry:Button({ Text = "Swap dropdown options", Callback = function()
+    hitbox:SetOptions({ "Head", "Neck", "Chest" })
+end })
+
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)
 print("[Chroma dev] pages:", #Win._pages)
