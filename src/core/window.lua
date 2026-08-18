@@ -8,6 +8,7 @@ local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
 local Popup = require("core/popup")
+local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
@@ -359,6 +360,13 @@ function M.new(root, opts)
         self._hairGradientBottom.Color = hairColor
         self._bodyStrokeGradient.Color = hairColor
     end)
+
+    -- Built before any consumer page exists, which is fine because a pinned page
+    -- never auto-activates. Opting out is one flag rather than a separate
+    -- constructor, since a consumer who does not want it is the rare case.
+    if opts.Settings ~= false then
+        self._settingsPage = Settings.build(root, self)
+    end
 
     self:setSize(size.X, size.Y)
     self._anim:_snap(false)
