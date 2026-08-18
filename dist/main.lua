@@ -1339,7 +1339,16 @@ end
 -- is read from it rather than passed in, so the caller cannot get the two out of
 -- step, and it gives the drift watch below something to watch.
 function Popup:open(owner, frame, anchor, onClose)
-    self:close()
+    -- close() fires the outgoing popup's onClose, and that callback may itself
+    -- open a popup. Loop until the slot is actually empty: otherwise the open
+    -- below would overwrite _watch and orphan a RenderStepped connection that
+    -- the re-entrant open had just installed.
+    local guard = 0
+    while self._owner ~= nil or self._watch ~= nil do
+        self:close()
+        guard = guard + 1
+        assert(guard < 8, "chroma: a popup onClose callback kept reopening a popup")
+    end
 
     -- Positioned from the frame's declared pixel Size, NOT AbsoluteSize:
     -- AbsoluteSize is (0, 0) until the frame has rendered once, and a popup is
