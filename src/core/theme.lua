@@ -94,6 +94,12 @@ end
 
 -- Mutates the stored palette only; existing bindings keep their old colour
 -- until the caller calls apply().
+function Theme:setAccentSpeed(speed)
+    if type(speed) ~= "number" then return end
+    self._accentSpeed = speed
+    self:_recompute(self._clock or 0)
+end
+
 function Theme:setPalette(overrides)
     for key, value in pairs(overrides) do
         self._stored[key] = value

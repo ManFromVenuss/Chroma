@@ -298,30 +298,58 @@ function M.new(root, holder, opts)
     self._image = image
     root:keep(image)
 
-    local count = opts.Count or 34
-    local maxSize = opts.MaxSize or 3
-    for i = 1, count do
-        local size = self._rng:NextInteger(1, maxSize)
-        local dot = Instance.new("Frame")
-        dot.Name = "star"
-        dot.Size = UDim2.fromOffset(size, size)
-        dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        dot.BackgroundTransparency = 1
-        dot.BorderSizePixel = 0
-        dot.ZIndex = 2
-        dot.Parent = holder
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(1, 0)
-        corner.Parent = dot
-        root:keep(dot)
+    self._maxSize = opts.MaxSize or 3
 
-        local star = { obj = dot, size = size }
-        self:_reseed(star, true)
-        self._stars[i] = star
-    end
+    -- ONE cleanup closure covering the whole pool, registered once. A keep per
+    -- star would grow the junk list every time setCount raises the count from
+    -- the settings slider -- and the per-star keeps were always redundant, since
+    -- every dot is a descendant of the ScreenGui that Unload destroys anyway.
+    root:keep(function()
+        for i = 1, #self._stars do
+            self._stars[i].obj:Destroy()
+        end
+        self._stars = {}
+    end)
+
+    self:setCount(opts.Count or 34)
 
     self:resize(self._w, self._h)
     return self
+end
+
+function Backdrop:_addStar()
+    local size = self._rng:NextInteger(1, self._maxSize)
+    local dot = Instance.new("Frame")
+    dot.Name = "star"
+    dot.Size = UDim2.fromOffset(size, size)
+    dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dot.BackgroundTransparency = 1
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 2
+    dot.Parent = self._holder
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = dot
+
+    local star = { obj = dot, size = size }
+    self:_reseed(star, true)
+    table.insert(self._stars, star)
+end
+
+-- Grows or shrinks the pool. Called at construction and by the settings slider.
+function Backdrop:setCount(count)
+    if type(count) ~= "number" then return end
+    count = math.floor(count)
+    if count < 0 then count = 0 end
+
+    while #self._stars > count do
+        local star = table.remove(self._stars)
+        star.obj:Destroy()
+    end
+    while #self._stars < count do
+        self:_addStar()
+    end
 end
 
 function Backdrop:_reseed(star, first)
@@ -704,10 +732,11 @@ function M.new(root, opts, isOver)
         _hidden = false,
     }, Cursor)
 
-    if cfg.Style == false or not DrawingImmediate then
-        if cfg.Style ~= false then
-            root:degrade("cursor", "DrawingImmediate missing: OS cursor retained")
-        end
+    -- Only a MISSING DrawingImmediate is fatal here. A Style of false or "None"
+    -- still connects the paint loop, because the settings page can turn the
+    -- cursor back on -- and it cannot do that if the connection was never made.
+    if not DrawingImmediate then
+        root:degrade("cursor", "DrawingImmediate missing: OS cursor retained")
         return self
     end
 
@@ -739,7 +768,11 @@ function M.new(root, opts, isOver)
 end
 
 function Cursor:_paint()
-    local over = self._isOver()
+    -- Style is read per frame rather than once at construction: the settings
+    -- page changes it live, and "off" has to also restore the OS pointer, which
+    -- the transition write below already does for free.
+    local off = self._cfg.Style == false or self._cfg.Style == "None"
+    local over = (not off) and self._isOver()
 
     -- _hidden records whether WE have hidden the OS pointer. Write only on a
     -- transition; comparing with == instead of ~= rewrites the property on every
@@ -986,7 +1019,10 @@ function M.new(root, window, opts)
     button.BackgroundTransparency = 1
     button.Text = ""
     button.AutoButtonColor = false
-    button.Parent = window._rail
+    -- A pinned page sits in the rail's bottom strip rather than in its list, so
+    -- it stays visually separated from the consumer's pages however many they
+    -- add. Today that is only the settings page.
+    button.Parent = opts.Pinned and window._railBottom or window._rail
     root:keep(button)
 
     local marker = Instance.new("Frame")
@@ -1013,7 +1049,14 @@ function M.new(root, window, opts)
         glyph.BackgroundTransparency = 1
     else
         glyph = Instance.new("TextLabel")
-        glyph.Text = name:sub(1, 1):upper()
+        -- A non-asset Icon string is used VERBATIM, which is how the settings
+        -- page gets its gear: U+2699, verified in-game to render in both Ubuntu
+        -- and Code (the same probe drew U+2731 as an empty box, so the check
+        -- discriminates). Falling back to the page's initial keeps every other
+        -- page working unchanged, and M5 swaps in a Lucide gear by passing an
+        -- asset id instead.
+        glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
+            or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
         glyph.TextSize = 12
         glyph.Size = UDim2.fromOffset(14, 14)
@@ -1096,6 +1139,7 @@ function M.new(root, window, opts)
         _glyph = glyph,
         name = name,
         body = body,
+        pinned = opts.Pinned == true,
     }, Page)
 
     root:keep(button.Activated:Connect(function()
@@ -1916,6 +1960,12 @@ end
 
 -- Mutates the stored palette only; existing bindings keep their old colour
 -- until the caller calls apply().
+function Theme:setAccentSpeed(speed)
+    if type(speed) ~= "number" then return end
+    self._accentSpeed = speed
+    self:_recompute(self._clock or 0)
+end
+
 function Theme:setPalette(overrides)
     for key, value in pairs(overrides) do
         self._stored[key] = value
@@ -2420,6 +2470,41 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
+    -- A bottom strip for pinned entries, outside the rail's UIListLayout: a
+    -- list layout arranges every child, so a pinned button placed in it would
+    -- simply queue behind the others rather than sitting at the bottom.
+    local railBottom = Instance.new("Frame")
+    railBottom.Name = "railBottom"
+    railBottom.AnchorPoint = Vector2.new(0, 1)
+    railBottom.Position = UDim2.new(0, 0, 1, 0)
+    railBottom.Size = UDim2.new(1, 0, 0, 36)
+    railBottom.BackgroundTransparency = 1
+    railBottom.BorderSizePixel = 0
+    railBottom.ZIndex = 6
+    railBottom.Parent = rail
+    self._railBottom = railBottom
+
+    local railBottomLayout = Instance.new("UIListLayout")
+    railBottomLayout.FillDirection = Enum.FillDirection.Vertical
+    railBottomLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    railBottomLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    railBottomLayout.Padding = UDim.new(0, 5)
+    railBottomLayout.Parent = railBottom
+
+    -- A UIListLayout arranges EVERY child, so the rule is part of the list
+    -- rather than positioned over it -- the same trap that made the sub-tab
+    -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
+    -- buttons, which is what "separated from the pages" means visually.
+    local railRule = Instance.new("Frame")
+    railRule.Name = "rule"
+    railRule.Size = UDim2.new(1, -12, 0, 1)
+    railRule.BorderSizePixel = 0
+    railRule.LayoutOrder = 0
+    railRule.ZIndex = 6
+    railRule.Parent = railBottom
+    theme:bind(railRule, "BackgroundColor3", "ContainerBorder")
+
     -- Everything right of the rail. Pages fill this and show one at a time.
     local pageArea = Instance.new("Frame")
     pageArea.Name = "pages"
@@ -2611,10 +2696,13 @@ end
 function Window:Page(opts)
     local page = Page.new(self._root, self, opts or {})
     table.insert(self._pages, page)
-    if not self._activePage then
+    -- A pinned page must never become the default view. The settings page is
+    -- built before any consumer page exists, so plain "first page wins" would
+    -- open the menu on Settings every single time.
+    if not self._activePage and not page.pinned then
         self:setActivePage(page)
     else
-        page:setActive(false)
+        page:setActive(page == self._activePage)
     end
     return page
 end
@@ -2674,6 +2762,23 @@ end
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)
     self._toggleKey = key
+end
+
+function Window:setAnimations(on)
+    self._animate = on ~= false
+end
+
+function Window:setAccentSpeed(speed)
+    self._theme:setAccentSpeed(speed)
+    self._theme:apply()
+end
+
+function Window:setCursor(opts)
+    self._cursor:setConfig(opts)
+end
+
+function Window:setParticleCount(count)
+    self._backdrop:setCount(count)
 end
 
 M.Window = Window

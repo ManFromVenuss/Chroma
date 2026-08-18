@@ -198,6 +198,41 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
+    -- A bottom strip for pinned entries, outside the rail's UIListLayout: a
+    -- list layout arranges every child, so a pinned button placed in it would
+    -- simply queue behind the others rather than sitting at the bottom.
+    local railBottom = Instance.new("Frame")
+    railBottom.Name = "railBottom"
+    railBottom.AnchorPoint = Vector2.new(0, 1)
+    railBottom.Position = UDim2.new(0, 0, 1, 0)
+    railBottom.Size = UDim2.new(1, 0, 0, 36)
+    railBottom.BackgroundTransparency = 1
+    railBottom.BorderSizePixel = 0
+    railBottom.ZIndex = 6
+    railBottom.Parent = rail
+    self._railBottom = railBottom
+
+    local railBottomLayout = Instance.new("UIListLayout")
+    railBottomLayout.FillDirection = Enum.FillDirection.Vertical
+    railBottomLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    railBottomLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    railBottomLayout.Padding = UDim.new(0, 5)
+    railBottomLayout.Parent = railBottom
+
+    -- A UIListLayout arranges EVERY child, so the rule is part of the list
+    -- rather than positioned over it -- the same trap that made the sub-tab
+    -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
+    -- buttons, which is what "separated from the pages" means visually.
+    local railRule = Instance.new("Frame")
+    railRule.Name = "rule"
+    railRule.Size = UDim2.new(1, -12, 0, 1)
+    railRule.BorderSizePixel = 0
+    railRule.LayoutOrder = 0
+    railRule.ZIndex = 6
+    railRule.Parent = railBottom
+    theme:bind(railRule, "BackgroundColor3", "ContainerBorder")
+
     -- Everything right of the rail. Pages fill this and show one at a time.
     local pageArea = Instance.new("Frame")
     pageArea.Name = "pages"
@@ -389,10 +424,13 @@ end
 function Window:Page(opts)
     local page = Page.new(self._root, self, opts or {})
     table.insert(self._pages, page)
-    if not self._activePage then
+    -- A pinned page must never become the default view. The settings page is
+    -- built before any consumer page exists, so plain "first page wins" would
+    -- open the menu on Settings every single time.
+    if not self._activePage and not page.pinned then
         self:setActivePage(page)
     else
-        page:setActive(false)
+        page:setActive(page == self._activePage)
     end
     return page
 end
@@ -452,6 +490,23 @@ end
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)
     self._toggleKey = key
+end
+
+function Window:setAnimations(on)
+    self._animate = on ~= false
+end
+
+function Window:setAccentSpeed(speed)
+    self._theme:setAccentSpeed(speed)
+    self._theme:apply()
+end
+
+function Window:setCursor(opts)
+    self._cursor:setConfig(opts)
+end
+
+function Window:setParticleCount(count)
+    self._backdrop:setCount(count)
 end
 
 M.Window = Window
