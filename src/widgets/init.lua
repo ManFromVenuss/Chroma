@@ -9,4 +9,5 @@ return {
     Slider = require("widgets/slider"),
     Dropdown = require("widgets/dropdown"),
     Button = require("widgets/button"),
+    TextBox = require("widgets/textbox"),
 }
