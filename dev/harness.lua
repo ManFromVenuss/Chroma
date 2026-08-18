@@ -111,6 +111,31 @@ entry:Button({ Text = "Swap dropdown options", Callback = function()
     hitbox:SetOptions({ "Head", "Neck", "Chest" })
 end })
 
+local binds = ml:Container("Keybinds")
+local trigger = binds:Keybind({ Name = "Trigger", Default = Enum.KeyCode.C, Mode = "Hold",
+    Description = "Left-click to capture, Escape to clear, right-click for the mode menu." })
+local aimKey = binds:Keybind({ Name = "Aim", Default = Enum.UserInputType.MouseButton2,
+    Mode = "Hold" })
+
+local paint = mr:Container("Colours")
+local boxColour = paint:Colorpicker({ Name = "Box", Default = Color3.fromRGB(23, 184, 166),
+    Description = "No alpha strip: this one has no Alpha option." })
+local fillColour = paint:Colorpicker({ Name = "Fill", Default = Color3.fromRGB(255, 64, 64),
+    Alpha = 0.4, Description = "Alpha strip enabled, with the chequerboard behind it." })
+
+local presets = mr:Container("Presets")
+presets:Label({ Text = "M4 wires this to real configs." })
+local slots = presets:ListBox({ Items = { "default", "legit", "rage", "hvh", "closet", "test", "spare" },
+    Rows = 6, Default = "default" })
+presets:Button({ Text = "Report", Callback = function()
+    print("[Chroma dev] trigger:", tostring(trigger:Get()), trigger:GetMode(), "held:", trigger:IsHeld())
+    print("[Chroma dev] aim held:", aimKey:IsHeld())
+    print("[Chroma dev] box:", tostring(boxColour:Get()))
+    local c, a = fillColour:Get()
+    print("[Chroma dev] fill:", tostring(c), "alpha:", a)
+    print("[Chroma dev] preset:", slots:Get())
+end })
+
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)
 print("[Chroma dev] pages:", #Win._pages)
