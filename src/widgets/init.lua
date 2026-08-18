@@ -12,4 +12,5 @@ return {
     TextBox = require("widgets/textbox"),
     Keybind = require("widgets/keybind"),
     Colorpicker = require("widgets/colorpicker"),
+    ListBox = require("widgets/listbox"),
 }
