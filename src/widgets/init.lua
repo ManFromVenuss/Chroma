@@ -8,4 +8,5 @@ return {
     Toggle = require("widgets/toggle"),
     Slider = require("widgets/slider"),
     Dropdown = require("widgets/dropdown"),
+    Button = require("widgets/button"),
 }
