@@ -144,6 +144,14 @@ function M.new(root, row, opts)
     -- InputBegan would let the very same MouseButton1 press reach the capture
     -- handler below and instantly bind MOUSE1.
     root:keep(field.frame.Activated:Connect(function()
+        -- Binding a mouse button ON the field consumes the press down in
+        -- _capture, but its RELEASE still arrives here as an Activated, which
+        -- would immediately re-enter capture -- the field flashed MOUSE1 and
+        -- then went straight back to listening. Swallow exactly that one.
+        if self._swallowActivated then
+            self._swallowActivated = false
+            return
+        end
         self:_beginCapture()
     end))
 
@@ -232,6 +240,9 @@ function Keybind:_capture(input)
         local p, s = self._field.frame.AbsolutePosition, self._field.frame.AbsoluteSize
         if mx >= p.X and mx <= p.X + s.X and my >= p.Y and my <= p.Y + s.Y then
             self:Set(input.UserInputType)
+            -- This press will still deliver an Activated on release; that must
+            -- not restart capture. See the Activated handler in M.new.
+            self._swallowActivated = true
         end
         self:_endCapture()
         return

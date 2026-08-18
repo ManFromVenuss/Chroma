@@ -33,7 +33,7 @@ function M.new(root, row, opts)
         _listeners = {},
     }, TextBox)
 
-    root:keep(field.frame.Activated:Connect(function()
+    local function beginEdit()
         if self._editing then return end
         self._editing = true
         -- Captured so FocusLost can restore it explicitly on Escape, rather
@@ -46,7 +46,24 @@ function M.new(root, row, opts)
         -- editing one character of it.
         box.CursorPosition = #box.Text + 1
         box.SelectionStart = 1
+    end
+
+    -- Listen on the BOX, not only the field around it. A TextBox takes focus
+    -- natively when clicked even while TextEditable is false, and that click
+    -- never reaches the parent button -- so the field's Activated never fired,
+    -- TextEditable stayed false, and the box sat focused and selectable while
+    -- silently swallowing every keystroke. Confirmed in-game: the keys arrived
+    -- with gameProcessed true and the focused box was correct, but Text never
+    -- changed. This is why the slider's value field listens on its own
+    -- InputBegan rather than on a parent.
+    root:keep(box.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            beginEdit()
+        end
     end))
+
+    -- The frame too, so clicking the padding either side of the text works.
+    root:keep(field.frame.Activated:Connect(beginEdit))
 
     root:keep(box.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
         self._editing = false

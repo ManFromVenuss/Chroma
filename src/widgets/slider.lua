@@ -177,13 +177,25 @@ function M.new(root, row, opts)
         value.SelectionStart = 1
     end))
 
-    root:keep(value.FocusLost:Connect(function()
+    root:keep(value.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
         self._editing = false
         value.TextEditable = false
         theme:unbind(value)
         theme:bind(value, "TextColor3", "TextDim")
-        -- Escape and clicking away both arrive here too, so a non-number is
-        -- simply a cancel: Set re-renders the current value, formatted.
+
+        -- Escape must cancel, and it has to be handled explicitly. Roblox does
+        -- NOT restore a TextBox's previous text before releasing focus --
+        -- measured in-game: at FocusLost the box still held the typed value
+        -- with cause=Escape. Relying on that would silently COMMIT the edit,
+        -- which is the opposite of cancelling.
+        if inputThatCausedFocusLoss ~= nil
+            and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then
+            self:Set(self._current, true)
+            return
+        end
+
+        -- Clicking away still commits, and a non-number is a cancel: Set
+        -- re-renders the current value, formatted.
         local typed = tonumber(value.Text)
         if typed then self:Set(typed) else self:Set(self._current, true) end
     end))

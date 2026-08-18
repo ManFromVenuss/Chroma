@@ -4276,6 +4276,14 @@ function M.new(root, row, opts)
     -- InputBegan would let the very same MouseButton1 press reach the capture
     -- handler below and instantly bind MOUSE1.
     root:keep(field.frame.Activated:Connect(function()
+        -- Binding a mouse button ON the field consumes the press down in
+        -- _capture, but its RELEASE still arrives here as an Activated, which
+        -- would immediately re-enter capture -- the field flashed MOUSE1 and
+        -- then went straight back to listening. Swallow exactly that one.
+        if self._swallowActivated then
+            self._swallowActivated = false
+            return
+        end
         self:_beginCapture()
     end))
 
@@ -4364,6 +4372,9 @@ function Keybind:_capture(input)
         local p, s = self._field.frame.AbsolutePosition, self._field.frame.AbsoluteSize
         if mx >= p.X and mx <= p.X + s.X and my >= p.Y and my <= p.Y + s.Y then
             self:Set(input.UserInputType)
+            -- This press will still deliver an Activated on release; that must
+            -- not restart capture. See the Activated handler in M.new.
+            self._swallowActivated = true
         end
         self:_endCapture()
         return
@@ -4975,13 +4986,25 @@ function M.new(root, row, opts)
         value.SelectionStart = 1
     end))
 
-    root:keep(value.FocusLost:Connect(function()
+    root:keep(value.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
         self._editing = false
         value.TextEditable = false
         theme:unbind(value)
         theme:bind(value, "TextColor3", "TextDim")
-        -- Escape and clicking away both arrive here too, so a non-number is
-        -- simply a cancel: Set re-renders the current value, formatted.
+
+        -- Escape must cancel, and it has to be handled explicitly. Roblox does
+        -- NOT restore a TextBox's previous text before releasing focus --
+        -- measured in-game: at FocusLost the box still held the typed value
+        -- with cause=Escape. Relying on that would silently COMMIT the edit,
+        -- which is the opposite of cancelling.
+        if inputThatCausedFocusLoss ~= nil
+            and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then
+            self:Set(self._current, true)
+            return
+        end
+
+        -- Clicking away still commits, and a non-number is a cancel: Set
+        -- re-renders the current value, formatted.
         local typed = tonumber(value.Text)
         if typed then self:Set(typed) else self:Set(self._current, true) end
     end))
@@ -5084,7 +5107,7 @@ function M.new(root, row, opts)
         _listeners = {},
     }, TextBox)
 
-    root:keep(field.frame.Activated:Connect(function()
+    local function beginEdit()
         if self._editing then return end
         self._editing = true
         -- Captured so FocusLost can restore it explicitly on Escape, rather
@@ -5097,7 +5120,24 @@ function M.new(root, row, opts)
         -- editing one character of it.
         box.CursorPosition = #box.Text + 1
         box.SelectionStart = 1
+    end
+
+    -- Listen on the BOX, not only the field around it. A TextBox takes focus
+    -- natively when clicked even while TextEditable is false, and that click
+    -- never reaches the parent button -- so the field's Activated never fired,
+    -- TextEditable stayed false, and the box sat focused and selectable while
+    -- silently swallowing every keystroke. Confirmed in-game: the keys arrived
+    -- with gameProcessed true and the focused box was correct, but Text never
+    -- changed. This is why the slider's value field listens on its own
+    -- InputBegan rather than on a parent.
+    root:keep(box.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            beginEdit()
+        end
     end))
+
+    -- The frame too, so clicking the padding either side of the text works.
+    root:keep(field.frame.Activated:Connect(beginEdit))
 
     root:keep(box.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
         self._editing = false
