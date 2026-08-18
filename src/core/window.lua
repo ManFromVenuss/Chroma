@@ -297,11 +297,18 @@ function M.new(root, opts)
     --== toggle key ==--
     -- gameProcessedEvent is IGNORED by default: games sink keys, and O is sunk
     -- in one of the target games. RespectGameProcessed opts into politeness.
-    local toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
+    self._toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
     local respect = opts.RespectGameProcessed == true
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if respect and gameProcessed then return end
-        if input.KeyCode == toggleKey then
+        -- A Keybind capture owns the keyboard while it is open, or binding the
+        -- toggle key would bind it AND close the menu in one press.
+        if root.capturing then return end
+        local key = self._toggleKey
+        if key == nil then return end
+        if key.EnumType == Enum.UserInputType then
+            if input.UserInputType == key then self:toggle() end
+        elseif input.KeyCode == key then
             self:toggle()
         end
     end))
@@ -439,6 +446,12 @@ end
 function Window:setAccent(accent)
     self._theme:setAccent(accent)
     self._theme:apply()
+end
+
+-- Accepts a KeyCode or a bindable UserInputType, or nil for no toggle at all.
+-- The settings page's Keybind writes here.
+function Window:setToggleKey(key)
+    self._toggleKey = key
 end
 
 M.Window = Window

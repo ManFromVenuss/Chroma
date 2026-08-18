@@ -2519,11 +2519,18 @@ function M.new(root, opts)
     --== toggle key ==--
     -- gameProcessedEvent is IGNORED by default: games sink keys, and O is sunk
     -- in one of the target games. RespectGameProcessed opts into politeness.
-    local toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
+    self._toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
     local respect = opts.RespectGameProcessed == true
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if respect and gameProcessed then return end
-        if input.KeyCode == toggleKey then
+        -- A Keybind capture owns the keyboard while it is open, or binding the
+        -- toggle key would bind it AND close the menu in one press.
+        if root.capturing then return end
+        local key = self._toggleKey
+        if key == nil then return end
+        if key.EnumType == Enum.UserInputType then
+            if input.UserInputType == key then self:toggle() end
+        elseif input.KeyCode == key then
             self:toggle()
         end
     end))
@@ -2661,6 +2668,12 @@ end
 function Window:setAccent(accent)
     self._theme:setAccent(accent)
     self._theme:apply()
+end
+
+-- Accepts a KeyCode or a bindable UserInputType, or nil for no toggle at all.
+-- The settings page's Keybind writes here.
+function Window:setToggleKey(key)
+    self._toggleKey = key
 end
 
 M.Window = Window
@@ -2910,6 +2923,96 @@ function Button:Get() return nil end
 function Button:Set() end
 function Button:OnChanged() end
 function Button:SetVisible(visible) self._row.frame.Visible = visible end
+
+return M
+end
+
+__modules["widgets/colorpicker"] = function(require)
+-- Colorpicker: the pure text parsing, plus (from the next task) the swatch, the
+-- HSV square, the hue and alpha strips and the text field.
+--
+-- parseColor and toHex are unit tested, so keep them in the Lua 5.4 / Luau
+-- intersection: no compound assignment, no bitwise ops, no goto. That also
+-- means no Color3 construction here -- these deal in plain numbers, and the
+-- Instance half converts.
+
+local M = {}
+
+-- Channels are 0..255 and alpha is 0..1, matching how each is written by hand.
+local function clampByte(n)
+    n = math.floor(n + 0.5)
+    if n < 0 then return 0 end
+    if n > 255 then return 255 end
+    return n
+end
+
+-- Returns r, g, b, a or nil. Unparseable input is USER error at runtime, not a
+-- programming mistake, so the caller reverts silently rather than erroring --
+-- exactly as the slider's typed value does.
+function M.parseColor(text)
+    if type(text) ~= "string" then return nil end
+
+    local s = text:gsub("%s", "")
+    if s == "" then return nil end
+
+    -- Sniffed on the comma rather than by asking the caller which format it is:
+    -- the whole point of one field is that it takes either.
+    if s:find(",", 1, true) then
+        local parts = {}
+        for piece in s:gmatch("[^,]+") do
+            table.insert(parts, tonumber(piece))
+        end
+        if #parts < 3 or #parts > 4 then return nil end
+        for i = 1, #parts do
+            if parts[i] == nil then return nil end
+        end
+
+        local a = parts[4]
+        if a == nil then
+            a = 1
+        elseif a > 1 then
+            -- 255,0,0,255 means opaque. Clamping is what they meant; rejecting
+            -- it would be pedantic about a format nobody agreed on.
+            a = 1
+        elseif a < 0 then
+            a = 0
+        end
+        return clampByte(parts[1]), clampByte(parts[2]), clampByte(parts[3]), a
+    end
+
+    local hex = s:gsub("^#", "")
+    if hex:match("^%x+$") == nil then return nil end
+
+    local n = #hex
+    if n == 3 or n == 4 then
+        -- Each digit doubles: F -> FF, which is 15 * 17 = 255.
+        local r = tonumber(hex:sub(1, 1), 16) * 17
+        local g = tonumber(hex:sub(2, 2), 16) * 17
+        local b = tonumber(hex:sub(3, 3), 16) * 17
+        local a = 1
+        if n == 4 then a = tonumber(hex:sub(4, 4), 16) * 17 / 255 end
+        return r, g, b, a
+    end
+    if n == 6 or n == 8 then
+        local r = tonumber(hex:sub(1, 2), 16)
+        local g = tonumber(hex:sub(3, 4), 16)
+        local b = tonumber(hex:sub(5, 6), 16)
+        local a = 1
+        if n == 8 then a = tonumber(hex:sub(7, 8), 16) / 255 end
+        return r, g, b, a
+    end
+    return nil
+end
+
+-- Hex is the display format, being the compact one. Alpha is appended only when
+-- the picker has an alpha strip at all.
+function M.toHex(r, g, b, a)
+    if a == nil then
+        return string.format("#%02X%02X%02X", clampByte(r), clampByte(g), clampByte(b))
+    end
+    return string.format("#%02X%02X%02X%02X",
+        clampByte(r), clampByte(g), clampByte(b), clampByte(a * 255))
+end
 
 return M
 end
@@ -3280,7 +3383,337 @@ return {
     Dropdown = require("widgets/dropdown"),
     Button = require("widgets/button"),
     TextBox = require("widgets/textbox"),
+    Keybind = require("widgets/keybind"),
 }
+end
+
+__modules["widgets/keybind"] = function(require)
+-- Keybind: the pure display-name mapping, plus (from the next task) capture,
+-- the mode menu, and IsHeld.
+--
+-- formatKey is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- no compound assignment, no bitwise ops, no goto. That also means NO Enum
+-- values at module scope -- the harness has no `Enum` global.
+
+local M = {}
+
+-- The only bindable mouse inputs there are. Roblox delivers no event at all for
+-- side buttons 4 and 5, and Enum.KeyCode.MouseBackButton is a dead legacy entry
+-- InputBegan never fires. Proven in-game with a logger; see the M3 spec.
+local MOUSE = {
+    MouseButton1 = "MOUSE1",
+    MouseButton2 = "MOUSE2",
+    MouseButton3 = "MOUSE3",
+}
+
+-- Anything that would overflow the field at 11px, or reads badly upper-cased.
+local SHORT = {
+    LeftShift = "LSHIFT",   RightShift = "RSHIFT",
+    LeftControl = "LCTRL",  RightControl = "RCTRL",
+    LeftAlt = "LALT",       RightAlt = "RALT",
+    LeftSuper = "LWIN",     RightSuper = "RWIN",
+    CapsLock = "CAPS",      Backspace = "BACK",
+    Return = "ENTER",       Escape = "ESC",
+    Delete = "DEL",         PageUp = "PGUP",
+    PageDown = "PGDN",      Space = "SPACE",
+}
+
+-- Takes NAMES rather than EnumItems so it can be tested without a Roblox
+-- environment. The caller unwraps .Name.
+function M.formatKey(inputTypeName, keyCodeName)
+    if inputTypeName ~= nil and MOUSE[inputTypeName] ~= nil then
+        return MOUSE[inputTypeName]
+    end
+    if keyCodeName == nil or keyCodeName == "" or keyCodeName == "Unknown" then
+        return "NONE"
+    end
+    if SHORT[keyCodeName] ~= nil then
+        return SHORT[keyCodeName]
+    end
+    return string.upper(keyCodeName)
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local Field = require("core/field")
+local safecall = require("util/safecall")
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the harness requires this file to reach formatKey.
+local UserInputService
+
+local Keybind = {}
+Keybind.__index = Keybind
+
+local MODES = { "Always", "Hold", "Toggle" }
+local MODE_WIDTH = 72
+local MODE_HEIGHT = 16
+
+local function isMouseBind(bind)
+    return typeof(bind) == "EnumItem" and bind.EnumType == Enum.UserInputType
+end
+
+local function describe(bind)
+    if bind == nil then return M.formatKey(nil, nil) end
+    if isMouseBind(bind) then return M.formatKey(bind.Name, nil) end
+    return M.formatKey(nil, bind.Name)
+end
+
+function M.new(root, row, opts)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+
+    local theme = root.theme
+    local field = Field.new(root, row.control, {})
+    -- Right-aligned: a keybind is read as a value, like the slider's number,
+    -- not as a caption.
+    field.label.TextXAlignment = Enum.TextXAlignment.Right
+    field.label.Size = UDim2.new(1, -8, 1, 0)
+
+    --== the right-click mode menu, in the popup layer ==--
+    local menu = Instance.new("Frame")
+    menu.Name = "keybindModes"
+    menu.Size = UDim2.fromOffset(MODE_WIDTH, MODE_HEIGHT * #MODES)
+    menu.BorderSizePixel = 0
+    menu.Visible = false
+    menu.ZIndex = 10
+    menu.Parent = root.popupLayer
+    root:keep(menu)
+    theme:bind(menu, "BackgroundColor3", "Window")
+
+    local menuStroke = Instance.new("UIStroke")
+    menuStroke.Thickness = 1
+    menuStroke.Parent = menu
+    theme:bind(menuStroke, "Color", "Accent")
+
+    local menuLayout = Instance.new("UIListLayout")
+    menuLayout.FillDirection = Enum.FillDirection.Vertical
+    menuLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    menuLayout.Parent = menu
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _theme = theme,
+        _field = field,
+        _menu = menu,
+        _modeButtons = {},
+        _bind = nil,
+        _mode = "Always",
+        _down = false,
+        _toggled = false,
+        _capturing = false,
+        _label = opts.Name or "Keybind",
+        _callback = opts.Callback,
+        _listeners = {},
+    }, Keybind)
+
+    for i = 1, #MODES do
+        local mode = MODES[i]
+        local button = Instance.new("TextButton")
+        button.Name = "mode_" .. mode
+        button.Size = UDim2.new(1, 0, 0, MODE_HEIGHT)
+        button.BackgroundTransparency = 1
+        button.BorderSizePixel = 0
+        button.Font = Enum.Font.Ubuntu
+        button.TextSize = 11
+        button.Text = mode
+        button.AutoButtonColor = false
+        button.LayoutOrder = i
+        button.ZIndex = 11
+        button.Parent = menu
+
+        self._modeButtons[mode] = button
+
+        root:keep(button.Activated:Connect(function()
+            self:SetMode(mode)
+            root.popup:close()
+        end))
+    end
+
+    -- Activated fires on button RELEASE, and that matters: starting capture from
+    -- InputBegan would let the very same MouseButton1 press reach the capture
+    -- handler below and instantly bind MOUSE1.
+    root:keep(field.frame.Activated:Connect(function()
+        self:_beginCapture()
+    end))
+
+    root:keep(field.frame.MouseButton2Click:Connect(function()
+        self:_openModeMenu()
+    end))
+
+    -- ONE InputBegan connection serving both capture and hold/toggle tracking.
+    root:keep(UserInputService.InputBegan:Connect(function(input)
+        if self._capturing then
+            self:_capture(input)
+            return
+        end
+        if not self:_matches(input) then return end
+        self._down = true
+        if self._mode == "Toggle" then
+            self._toggled = not self._toggled
+        end
+    end))
+
+    root:keep(UserInputService.InputEnded:Connect(function(input)
+        if self:_matches(input) then
+            self._down = false
+        end
+    end))
+
+    self:SetMode(opts.Mode or "Always")
+    self:Set(opts.Default, true)
+    return self
+end
+
+function Keybind:_matches(input)
+    local bind = self._bind
+    if bind == nil then return false end
+    if isMouseBind(bind) then
+        return input.UserInputType == bind
+    end
+    return input.UserInputType == Enum.UserInputType.Keyboard
+        and input.KeyCode == bind
+end
+
+function Keybind:_beginCapture()
+    if self._capturing then return end
+    self._capturing = true
+    -- A GLOBAL lock, not just a local flag: the window's toggle handler reads
+    -- it. Without this, binding the menu's own toggle key would bind the key
+    -- and close the menu in one press. The same applies to any key the game
+    -- sinks, since the toggle deliberately ignores gameProcessedEvent.
+    self._root.capturing = true
+    self._field.setActive(true)
+    self._field.label.Text = "..."
+end
+
+function Keybind:_endCapture()
+    self._capturing = false
+    self._field.setActive(false)
+    self:_paint()
+    -- Release the global lock a frame later. The window's toggle handler is a
+    -- separate InputBegan connection and Roblox guarantees no ordering between
+    -- them, so clearing it inside the same event could still let the key that
+    -- was just bound close the menu.
+    task.defer(function()
+        if not self._root:isAlive() then return end
+        self._root.capturing = false
+    end)
+end
+
+function Keybind:_capture(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if input.KeyCode == Enum.KeyCode.Escape then
+            self:Set(nil)   -- Escape clears the bind
+        else
+            self:Set(input.KeyCode)
+        end
+        self:_endCapture()
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.MouseButton2
+        or input.UserInputType == Enum.UserInputType.MouseButton3 then
+        -- A mouse button binds only when the click lands ON the field. Anywhere
+        -- else is "click away to cancel", which is the other half of the spec
+        -- and would otherwise be unreachable for MOUSE1.
+        local mx, my = self._root:mouseInGuiSpace()
+        local p, s = self._field.frame.AbsolutePosition, self._field.frame.AbsoluteSize
+        if mx >= p.X and mx <= p.X + s.X and my >= p.Y and my <= p.Y + s.Y then
+            self:Set(input.UserInputType)
+        end
+        self:_endCapture()
+    end
+end
+
+function Keybind:_openModeMenu()
+    local popup = self._root.popup
+    if popup:isOpen(self) then
+        popup:close()
+        return
+    end
+    self:_paintModes()
+    popup:open(self, self._menu, self._field.frame)
+end
+
+function Keybind:_paintModes()
+    for i = 1, #MODES do
+        local mode = MODES[i]
+        local button = self._modeButtons[mode]
+        self._theme:unbind(button)
+        if mode == self._mode then
+            self._theme:bind(button, "BackgroundColor3", "Selection", "BackgroundTransparency")
+            self._theme:bind(button, "TextColor3", "Accent")
+        else
+            button.BackgroundTransparency = 1
+            self._theme:bind(button, "TextColor3", "Text")
+        end
+    end
+end
+
+function Keybind:_paint()
+    self._field.label.Text = describe(self._bind)
+    self._theme:unbind(self._field.label)
+    self._theme:bind(self._field.label, "TextColor3",
+        self._bind == nil and "TextDim" or "Text")
+end
+
+function Keybind:_fire()
+    safecall.call(self._label, self._callback, self._bind, self._mode)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], self._bind, self._mode)
+    end
+end
+
+function Keybind:Get()
+    return self._bind
+end
+
+function Keybind:Set(bind, silent)
+    local changed = bind ~= self._bind
+    self._bind = bind
+    -- A cleared or replaced bind must not leave a Hold reading as held or a
+    -- Toggle latched on.
+    self._down = false
+    self._toggled = false
+    self:_paint()
+    if silent or not changed then return end
+    self:_fire()
+end
+
+function Keybind:GetMode()
+    return self._mode
+end
+
+function Keybind:SetMode(mode)
+    if mode ~= "Always" and mode ~= "Hold" and mode ~= "Toggle" then
+        error("chroma: keybind Mode must be Always, Hold or Toggle, got "
+            .. tostring(mode), 2)
+    end
+    self._mode = mode
+    self._toggled = false
+    self:_paintModes()
+end
+
+-- The EXTENSION to the shared four-method contract, and the only one in the
+-- library. A consumer's aimbot reads this every frame, not Get.
+function Keybind:IsHeld()
+    if self._bind == nil then return false end
+    if self._mode == "Always" then return true end
+    if self._mode == "Toggle" then return self._toggled end
+    return self._down
+end
+
+function Keybind:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Keybind:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
 end
 
 __modules["widgets/label"] = function(require)

@@ -10,4 +10,5 @@ return {
     Dropdown = require("widgets/dropdown"),
     Button = require("widgets/button"),
     TextBox = require("widgets/textbox"),
+    Keybind = require("widgets/keybind"),
 }
