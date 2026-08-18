@@ -7,6 +7,7 @@ local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Popup = require("core/popup")
 local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
@@ -35,6 +36,7 @@ function M.new(root, opts)
         _theme = theme,
         _fullSize = size,
         _minSize = Vector2.new(MIN_WIDTH, MIN_HEIGHT),
+        _layoutListeners = {},
     }, Window)
 
     -- Frame keeps AnchorPoint (0,0) forever: it is the drag origin AND the
@@ -209,13 +211,16 @@ function M.new(root, opts)
     self._pages = {}
     self._activePage = nil
 
-    -- The tooltip manager is owned by the window and reached through root, so
-    -- row.lua can attach to it without being handed one explicitly.
+    -- The tooltip and popup managers are owned by the window and reached through
+    -- root, so row.lua and every widget can use them without being handed one.
     root.tooltip = Tooltip.new(root)
+    root.popup = Popup.new(root)
+    root.popup:bindDismissal(self)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)
         frame.Position = UDim2.fromOffset(start.X + delta.X, start.Y + delta.Y)
+        self:_layoutChanged()
     end, function()
         -- AbsolutePosition is screen space; Position is parent space. With
         -- IgnoreGuiInset = true the window layer sits `inset` above the
@@ -320,6 +325,19 @@ function M.new(root, opts)
     return self
 end
 
+-- Anything that reflows or replaces the view. The popup manager is the only
+-- subscriber today; keeping it a list means the next one does not have to
+-- rewrite this.
+function Window:onLayoutChanged(fn)
+    table.insert(self._layoutListeners, fn)
+end
+
+function Window:_layoutChanged()
+    for i = 1, #self._layoutListeners do
+        self._layoutListeners[i]()
+    end
+end
+
 function Window:_makeDragHandle(handle, onMove, readStart)
     local dragging, startMouse, startValue = false, nil, nil
 
@@ -358,6 +376,7 @@ function Window:setSize(width, height)
             self._pages[i]:relayout()
         end
     end
+    self:_layoutChanged()
 end
 
 function Window:Page(opts)
@@ -377,6 +396,7 @@ function Window:setActivePage(page)
         self._pages[i]:setActive(self._pages[i] == page)
     end
     page:relayout()
+    self:_layoutChanged()
 end
 
 function Window:getActivePage()
@@ -390,6 +410,7 @@ function Window:open()
 end
 
 function Window:close()
+    self:_layoutChanged()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
     -- Stars keep no state worth preserving, so pausing while hidden is free.

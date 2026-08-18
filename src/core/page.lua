@@ -300,6 +300,9 @@ function Page:setActiveTab(tab)
         end
         if active then t:_layout() end
     end
+    -- A popup opened from a row in the outgoing tab has no link to it and would
+    -- be left floating over the incoming one.
+    self._window:_layoutChanged()
 end
 
 -- Pages without tabs proxy straight to an implicit one, so a simple page needs
