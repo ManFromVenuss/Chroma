@@ -13,6 +13,7 @@ local files = {
     "tests.test_tooltip",
     "tests.test_slider",
     "tests.test_popup",
+    "tests.test_keybind",
 }
 
 local passed, failed = 0, 0
