@@ -2731,7 +2731,9 @@ function M.new(root, row, opts)
 
     local theme = root.theme
 
-    local value = Instance.new("TextLabel")
+    -- A TextBox rather than a TextLabel, kept non-editable until clicked, so
+    -- typing an exact value needs no second element and nothing moves.
+    local value = Instance.new("TextBox")
     value.Name = "value"
     value.AnchorPoint = Vector2.new(1, 0.5)
     value.Position = UDim2.new(1, 0, 0.5, 0)
@@ -2740,6 +2742,8 @@ function M.new(root, row, opts)
     value.Font = Enum.Font.Ubuntu
     value.TextSize = 11
     value.TextXAlignment = Enum.TextXAlignment.Right
+    value.TextEditable = false
+    value.ClearTextOnFocus = false
     value.Parent = row.control
     theme:bind(value, "TextColor3", "TextDim")
 
@@ -2799,6 +2803,7 @@ function M.new(root, row, opts)
         _callback = opts.Callback,
         _listeners = {},
         _current = min,
+        _editing = false,
     }, Slider)
 
     local dragging = false
@@ -2810,6 +2815,34 @@ function M.new(root, row, opts)
         self:Set(M.valueAt(fraction, self._min, self._max, self._decimals))
     end
 
+    --== typing an exact value ==--
+    root:keep(value.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if self._editing then return end
+        self._editing = true
+        value.TextEditable = true
+        -- Edit the bare number: the unit is presentation, not something to type.
+        value.Text = M.format(self._current, self._decimals, nil)
+        theme:unbind(value)
+        theme:bind(value, "TextColor3", "Text")
+        value:CaptureFocus()
+        -- Select the whole value so typing replaces it: the common case is
+        -- entering a new number, not editing a digit of the old one.
+        value.CursorPosition = #value.Text + 1
+        value.SelectionStart = 1
+    end))
+
+    root:keep(value.FocusLost:Connect(function()
+        self._editing = false
+        value.TextEditable = false
+        theme:unbind(value)
+        theme:bind(value, "TextColor3", "TextDim")
+        -- Escape and clicking away both arrive here too, so a non-number is
+        -- simply a cancel: Set re-renders the current value, formatted.
+        local typed = tonumber(value.Text)
+        if typed then self:Set(typed) else self:Set(self._current, true) end
+    end))
+
     root:keep(hit.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true
@@ -2818,7 +2851,8 @@ function M.new(root, row, opts)
     end))
 
     root:keep(UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        -- A stray mouse move while typing would fight the text box for the value.
+        if dragging and not self._editing and input.UserInputType == Enum.UserInputType.MouseMovement then
             applyFromMouse()
         end
     end))
@@ -2847,7 +2881,11 @@ function Slider:Set(v, silent)
     local fraction = M.fractionOf(rounded, self._min, self._max)
     self._fill.Size = UDim2.fromScale(fraction, 1)
     self._knob.Position = UDim2.fromScale(fraction, 0.5)
-    self._value.Text = M.format(rounded, self._decimals, self._unit)
+    -- Leave the text alone mid-edit, or a programmatic Set would overwrite
+    -- what is being typed.
+    if not self._editing then
+        self._value.Text = M.format(rounded, self._decimals, self._unit)
+    end
 
     if silent or not changed then return end
     safecall.call(self._label, self._callback, rounded)
