@@ -3698,6 +3698,7 @@ function M.new(root, row, opts)
         _numeric = opts.Numeric == true,
         _value = "",
         _editing = false,
+        _editStart = "",
         _label = opts.Name or "TextBox",
         _callback = opts.Callback,
         _listeners = {},
@@ -3706,6 +3707,9 @@ function M.new(root, row, opts)
     root:keep(field.frame.Activated:Connect(function()
         if self._editing then return end
         self._editing = true
+        -- Captured so FocusLost can restore it explicitly on Escape, rather
+        -- than trusting Roblox to have already put it back in box.Text.
+        self._editStart = self._value
         box.TextEditable = true
         field.setActive(true)
         box:CaptureFocus()
@@ -3715,14 +3719,24 @@ function M.new(root, row, opts)
         box.SelectionStart = 1
     end))
 
-    root:keep(box.FocusLost:Connect(function()
+    root:keep(box.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
         self._editing = false
         box.TextEditable = false
         field.setActive(false)
 
-        -- Escape needs no special case: Roblox restores a TextBox's previous
-        -- text before releasing focus, so committing what is in the box after
-        -- an Escape commits the old value, which IS the revert.
+        -- Whether Roblox restores the pre-edit text on Escape is not
+        -- documented and not something to bet a revert on -- if it doesn't,
+        -- this would silently COMMIT the edit instead, the opposite of the
+        -- spec. Escape is therefore handled explicitly using the value
+        -- captured when editing began. inputThatCausedFocusLoss may be nil
+        -- (e.g. focus lost by clicking elsewhere), so it is guarded before
+        -- indexing.
+        if inputThatCausedFocusLoss ~= nil
+            and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then
+            box.Text = self._editStart
+            return
+        end
+
         local text = box.Text
         if self._numeric and tonumber(text) == nil then
             -- Rejected on COMMIT rather than by filtering keystrokes: filtering
