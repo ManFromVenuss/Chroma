@@ -3038,8 +3038,19 @@ function Dropdown:_has(value)
 end
 
 function Dropdown:_rebuild()
+    local theme = self._theme
     for i = 1, #self._entries do
-        self._entries[i].button:Destroy()
+        local e = self._entries[i]
+        -- Destroying an Instance does NOT remove its theme bindings: apply()
+        -- would keep writing to a destroyed object every frame, and the binding
+        -- list would grow without bound on every SetOptions call.
+        theme:unbind(e.button)
+        theme:unbind(e.label)
+        if e.box then
+            theme:unbind(e.box)
+            theme:unbind(e.boxStroke)
+        end
+        e.button:Destroy()
     end
     self._entries = {}
 
