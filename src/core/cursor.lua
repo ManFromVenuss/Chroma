@@ -89,12 +89,22 @@ function Cursor:_paint()
     local off = self._cfg.Style == false or self._cfg.Style == "None"
     local over = (not off) and self._isOver()
 
-    -- _hidden records whether WE have hidden the OS pointer. Write only on a
-    -- transition; comparing with == instead of ~= rewrites the property on every
-    -- frame the pointer is off the window.
-    if over ~= self._hidden then
-        UserInputService.MouseIconEnabled = not over
-        self._hidden = over
+    -- _hidden records whether WE have hidden the OS pointer.
+    --
+    -- This re-asserts while the pointer is over the menu rather than writing
+    -- only on the transition. A transition-only write is enough on a baseplate,
+    -- but a real game that manages its own pointer sets MouseIconEnabled back
+    -- to true every frame and simply wins -- the OS arrow and Chroma's cross
+    -- then draw on top of each other. Reading the property first keeps this to
+    -- one write per frame only while something is actually fighting us.
+    if over then
+        if UserInputService.MouseIconEnabled then
+            UserInputService.MouseIconEnabled = false
+        end
+        self._hidden = true
+    elseif self._hidden then
+        UserInputService.MouseIconEnabled = true
+        self._hidden = false
     end
 
     if not over then return end

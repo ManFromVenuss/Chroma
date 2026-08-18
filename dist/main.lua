@@ -774,12 +774,22 @@ function Cursor:_paint()
     local off = self._cfg.Style == false or self._cfg.Style == "None"
     local over = (not off) and self._isOver()
 
-    -- _hidden records whether WE have hidden the OS pointer. Write only on a
-    -- transition; comparing with == instead of ~= rewrites the property on every
-    -- frame the pointer is off the window.
-    if over ~= self._hidden then
-        UserInputService.MouseIconEnabled = not over
-        self._hidden = over
+    -- _hidden records whether WE have hidden the OS pointer.
+    --
+    -- This re-asserts while the pointer is over the menu rather than writing
+    -- only on the transition. A transition-only write is enough on a baseplate,
+    -- but a real game that manages its own pointer sets MouseIconEnabled back
+    -- to true every frame and simply wins -- the OS arrow and Chroma's cross
+    -- then draw on top of each other. Reading the property first keeps this to
+    -- one write per frame only while something is actually fighting us.
+    if over then
+        if UserInputService.MouseIconEnabled then
+            UserInputService.MouseIconEnabled = false
+        end
+        self._hidden = true
+    elseif self._hidden then
+        UserInputService.MouseIconEnabled = true
+        self._hidden = false
     end
 
     if not over then return end
@@ -1323,6 +1333,13 @@ local RunService
 local Popup = {}
 Popup.__index = Popup
 
+-- Whether an AbsolutePosition-space point falls inside a GuiObject's rect.
+local function inside(object, x, y)
+    if object == nil then return false end
+    local p, s = object.AbsolutePosition, object.AbsoluteSize
+    return x >= p.X and x <= p.X + s.X and y >= p.Y and y <= p.Y + s.Y
+end
+
 -- ONE popup at a time, and that is a decision rather than a simplification.
 -- Containers clip and columns scroll, so a popup has to live in the overlay
 -- layer positioned by absolute coordinates -- it has NO parent-child link to
@@ -1334,37 +1351,41 @@ function M.new(root)
     UserInputService = UserInputService or game:GetService("UserInputService")
     RunService = RunService or game:GetService("RunService")
 
-    -- A full-screen transparent button beneath every popup. Click-outside
-    -- dismissal has to be a real input surface: UserInputService.InputBegan
-    -- fires for clicks INSIDE the popup too, and an InputObject does not say
-    -- what it landed on.
-    local blocker = Instance.new("TextButton")
-    blocker.Name = "blocker"
-    blocker.Size = UDim2.fromScale(1, 1)
-    blocker.BackgroundTransparency = 1
-    blocker.Text = ""
-    blocker.AutoButtonColor = false
-    blocker.Visible = false
-    blocker.ZIndex = 1
-    blocker.Parent = root.popupLayer
-
     local self = setmetatable({
         _root = root,
-        _blocker = blocker,
         _owner = nil,
         _frame = nil,
+        _anchor = nil,
         _onClose = nil,
         _watch = nil,
     }, Popup)
 
-    root:keep(blocker.Activated:Connect(function()
-        self:close()
-    end))
-
+    -- Click-outside dismissal is a hit test, NOT a full-screen blocker button.
+    -- A blocker was tried first and swallowed the click that dismissed the
+    -- popup: dragging the title bar with a dropdown open closed the dropdown on
+    -- mouse-RELEASE and never started the drag, because the bar never received
+    -- the press. Testing the pointer against the popup's own rect lets the click
+    -- reach whatever is underneath, which is what a menu should do.
     root:keep(UserInputService.InputBegan:Connect(function(input)
-        if self._owner and input.KeyCode == Enum.KeyCode.Escape then
+        if self._owner == nil then return end
+
+        if input.KeyCode == Enum.KeyCode.Escape then
             self:close()
+            return
         end
+
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.MouseButton2 then
+            return
+        end
+
+        local mx, my = root:mouseInGuiSpace()
+        -- The anchor counts as inside. A click on the field that opened this
+        -- popup must fall through to that widget's own toggle, or the widget
+        -- would reopen what this just closed and the popup could never be
+        -- dismissed by clicking its own control.
+        if inside(self._frame, mx, my) or inside(self._anchor, mx, my) then return end
+        self:close()
     end))
 
     -- ONE cleanup closure for the watch connection, registered once. Registering
@@ -1403,6 +1424,7 @@ function Popup:open(owner, frame, anchor, onClose)
 
     self._owner = owner
     self._frame = frame
+    self._anchor = anchor
     self._onClose = onClose
 
     local pos, size = anchor.AbsolutePosition, anchor.AbsoluteSize
@@ -1413,7 +1435,6 @@ function Popup:open(owner, frame, anchor, onClose)
         { w = viewport.X, h = viewport.Y })
     frame.Position = UDim2.fromOffset(self._root:toLayerSpace(x, y, frame.Parent))
     frame.Visible = true
-    self._blocker.Visible = true
 
     -- While one is open -- and only then -- close it if its anchor moves at all.
     -- This is the same "watch while visible" pattern the tooltip uses for a
@@ -1447,8 +1468,8 @@ function Popup:close()
     end
     self._owner = nil
     self._frame = nil
+    self._anchor = nil
     self._onClose = nil
-    self._blocker.Visible = false
 
     if onClose then onClose() end
 end
@@ -3917,7 +3938,10 @@ end
 
 function Dropdown:_caption()
     if not self._multi then
-        return self._value ~= nil and tostring(self._value) or ""
+        -- "none" rather than a blank field: an empty control reads as broken
+        -- rather than as an empty selection, and it matches what multi-select
+        -- already shows for the same state.
+        return self._value ~= nil and tostring(self._value) or "none"
     end
     local n, only = 0, nil
     for i = 1, #self._options do
