@@ -1139,6 +1139,9 @@ __modules["core/root"] = function(require)
 -- walks. No other module cleans up after itself.
 local Theme = require("core/theme")
 
+local GuiService
+local UserInputService
+
 local Root = {}
 Root.__index = Root
 
@@ -1172,6 +1175,8 @@ end
 
 function Root.new(opts)
     opts = opts or {}
+    GuiService = GuiService or game:GetService("GuiService")
+    UserInputService = UserInputService or game:GetService("UserInputService")
 
     local parent, parentKind = pickParent()
 
@@ -1247,6 +1252,26 @@ function Root:keep(item)
         error("chroma: Root:keep expects a function, Instance, Connection, or an object with a Disconnect method", 2)
     end
     return item
+end
+
+--== coordinate spaces ==--
+-- GetMouseLocation is true screen space. AbsolutePosition is measured below the
+-- GUI inset, and Position is relative to a parent that may itself be offset.
+-- Converting by hand caused four separate bugs: the window teleporting on every
+-- drag, the cursor's hover rect sitting 58px high, the window centring itself
+-- too high, and the tooltip floating above its icon. Convert here instead.
+
+-- The pointer, in the same space as any AbsolutePosition.
+function Root:mouseInGuiSpace()
+    local mouse = UserInputService:GetMouseLocation()
+    local inset = GuiService:GetGuiInset()
+    return mouse.X - inset.X, mouse.Y - inset.Y
+end
+
+-- An AbsolutePosition-space point, as a Position offset for a child of `layer`.
+function Root:toLayerSpace(x, y, layer)
+    local origin = (layer or self.gui).AbsolutePosition
+    return x - origin.X, y - origin.Y
 end
 
 function Root:degrade(feature, reason)
@@ -1739,7 +1764,6 @@ end
 -- the Lua 5.4 harness requires this file to reach place().
 local UserInputService
 local RunService
-local GuiService
 
 local Tooltip = {}
 Tooltip.__index = Tooltip
@@ -1752,7 +1776,6 @@ local MAX_WIDTH = 220
 function M.new(root)
     UserInputService = UserInputService or game:GetService("UserInputService")
     RunService = RunService or game:GetService("RunService")
-    GuiService = GuiService or game:GetService("GuiService")
 
     local theme = root.theme
 
@@ -1852,12 +1875,8 @@ function Tooltip:_show(icon, text)
         { x = pos.X, y = pos.Y, w = size.X, h = size.Y },
         { w = self._frame.AbsoluteSize.X, h = self._frame.AbsoluteSize.Y },
         { w = viewport.X, h = viewport.Y })
-    -- place() works in screen space (it is derived from AbsolutePosition), but
-    -- Position is parent space, and the tooltip layer sits `inset` above the
-    -- screen origin because the ScreenGui ignores the GUI inset. Subtract the
-    -- layer's own offset or the tooltip floats away from its icon.
-    local layerOrigin = self._frame.Parent.AbsolutePosition
-    self._frame.Position = UDim2.fromOffset(x - layerOrigin.X, y - layerOrigin.Y)
+    self._frame.Position = UDim2.fromOffset(
+        self._root:toLayerSpace(x, y, self._frame.Parent))
 
     -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
     -- is the only genuinely bad failure here. So while one is visible -- and
@@ -1867,11 +1886,9 @@ function Tooltip:_show(icon, text)
             self:_hide()
             return
         end
-        local m = UserInputService:GetMouseLocation()
+        local mx, my = self._root:mouseInGuiSpace()
         local p, s = self._owner.AbsolutePosition, self._owner.AbsoluteSize
-        local inset = GuiService:GetGuiInset()
-        local mx, my = m.X, m.Y
-        local ax, ay = p.X + inset.X, p.Y + inset.Y
+        local ax, ay = p.X, p.Y
         if mx < ax or mx > ax + s.X or my < ay or my > ay + s.Y then
             self:_hide()
         end
@@ -1919,7 +1936,6 @@ local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
 local UserInputService
-local GuiService
 
 local M = {}
 
@@ -1934,7 +1950,6 @@ local MIN_HEIGHT = 190
 
 function M.new(root, opts)
     UserInputService = UserInputService or game:GetService("UserInputService")
-    GuiService = GuiService or game:GetService("GuiService")
 
     opts = opts or {}
     local size = opts.Size or Vector2.new(640, 420)
@@ -1956,13 +1971,12 @@ function M.new(root, opts)
     -- that inset as a negative offset (e.g. -58). Subtracting it here cancels
     -- the offset instead of hardcoding a GUI inset that isn't constant across
     -- setups (topbar height varies with platform/device).
-    local layerOffset = root.windowLayer.AbsolutePosition
     local frame = Instance.new("Frame")
     frame.Name = "window"
     frame.AnchorPoint = Vector2.new(0, 0)
-    frame.Position = UDim2.fromOffset(
-        math.floor(viewport.X / 2 - size.X / 2 - layerOffset.X),
-        math.floor(viewport.Y / 2 - size.Y / 2 - layerOffset.Y))
+    frame.Position = UDim2.fromOffset(root:toLayerSpace(
+        math.floor(viewport.X / 2 - size.X / 2),
+        math.floor(viewport.Y / 2 - size.Y / 2), root.windowLayer))
     frame.Size = UDim2.fromOffset(size.X, size.Y)
     frame.BackgroundTransparency = 1
     frame.BorderSizePixel = 0
@@ -2195,19 +2209,9 @@ function M.new(root, opts)
     --== cursor ==--
     self._cursor = Cursor.new(root, opts.Cursor, function()
         if not self._anim:isOpen() then return false end
-        local pos = UserInputService:GetMouseLocation()
-        -- GetMouseLocation() is true-screen space, but AbsolutePosition is
-        -- measured below the GUI inset (the window layer's ScreenGui sets
-        -- IgnoreGuiInset = true, so AbsolutePosition sits `inset` above the
-        -- screen origin). Comparing them raw offsets the hit rect vertically
-        -- by the inset height (cross stays active above the top edge, dies
-        -- early at the bottom). Add the inset back to shift the rect into
-        -- the mouse's space. Read it every call, not once: it changes when
-        -- the topbar is hidden, on fullscreen toggles, and across devices.
-        local inset = GuiService:GetGuiInset()
-        local origin = frame.AbsolutePosition + inset
-        local extent = frame.AbsoluteSize
-        return Cursor.hitTest(pos.X, pos.Y, origin.X, origin.Y, extent.X, extent.Y)
+        local mx, my = root:mouseInGuiSpace()
+        local origin, extent = frame.AbsolutePosition, frame.AbsoluteSize
+        return Cursor.hitTest(mx, my, origin.X, origin.Y, extent.X, extent.Y)
     end)
 
     --== toggle key ==--
@@ -2703,7 +2707,6 @@ local safecall = require("util/safecall")
 -- Resolved lazily: a module-scope game:GetService() executes on require, and
 -- the harness requires this file to reach the maths above.
 local UserInputService
-local GuiService
 
 local Slider = {}
 Slider.__index = Slider
@@ -2715,7 +2718,6 @@ local HIT_HEIGHT = 19   -- the row height; a 2px track is impossible to grab
 
 function M.new(root, row, opts)
     UserInputService = UserInputService or game:GetService("UserInputService")
-    GuiService = GuiService or game:GetService("GuiService")
 
     local min = opts.Min or 0
     local max = opts.Max or 100
@@ -2802,13 +2804,9 @@ function M.new(root, row, opts)
     local dragging = false
 
     local function applyFromMouse()
-        local mouse = UserInputService:GetMouseLocation()
-        local inset = GuiService:GetGuiInset()
-        -- GetMouseLocation is true-screen; AbsolutePosition sits below the GUI
-        -- inset. Mixing them without this correction shifts the whole track.
-        local left = track.AbsolutePosition.X + inset.X
-        local width = track.AbsoluteSize.X
-        local fraction = width > 0 and (mouse.X - left) / width or 0
+        local mx = root:mouseInGuiSpace()
+        local left, width = track.AbsolutePosition.X, track.AbsoluteSize.X
+        local fraction = width > 0 and (mx - left) / width or 0
         self:Set(M.valueAt(fraction, self._min, self._max, self._decimals))
     end
 

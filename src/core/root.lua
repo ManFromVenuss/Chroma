@@ -2,6 +2,9 @@
 -- walks. No other module cleans up after itself.
 local Theme = require("core/theme")
 
+local GuiService
+local UserInputService
+
 local Root = {}
 Root.__index = Root
 
@@ -35,6 +38,8 @@ end
 
 function Root.new(opts)
     opts = opts or {}
+    GuiService = GuiService or game:GetService("GuiService")
+    UserInputService = UserInputService or game:GetService("UserInputService")
 
     local parent, parentKind = pickParent()
 
@@ -110,6 +115,26 @@ function Root:keep(item)
         error("chroma: Root:keep expects a function, Instance, Connection, or an object with a Disconnect method", 2)
     end
     return item
+end
+
+--== coordinate spaces ==--
+-- GetMouseLocation is true screen space. AbsolutePosition is measured below the
+-- GUI inset, and Position is relative to a parent that may itself be offset.
+-- Converting by hand caused four separate bugs: the window teleporting on every
+-- drag, the cursor's hover rect sitting 58px high, the window centring itself
+-- too high, and the tooltip floating above its icon. Convert here instead.
+
+-- The pointer, in the same space as any AbsolutePosition.
+function Root:mouseInGuiSpace()
+    local mouse = UserInputService:GetMouseLocation()
+    local inset = GuiService:GetGuiInset()
+    return mouse.X - inset.X, mouse.Y - inset.Y
+end
+
+-- An AbsolutePosition-space point, as a Position offset for a child of `layer`.
+function Root:toLayerSpace(x, y, layer)
+    local origin = (layer or self.gui).AbsolutePosition
+    return x - origin.X, y - origin.Y
 end
 
 function Root:degrade(feature, reason)

@@ -52,7 +52,6 @@ local safecall = require("util/safecall")
 -- Resolved lazily: a module-scope game:GetService() executes on require, and
 -- the harness requires this file to reach the maths above.
 local UserInputService
-local GuiService
 
 local Slider = {}
 Slider.__index = Slider
@@ -64,7 +63,6 @@ local HIT_HEIGHT = 19   -- the row height; a 2px track is impossible to grab
 
 function M.new(root, row, opts)
     UserInputService = UserInputService or game:GetService("UserInputService")
-    GuiService = GuiService or game:GetService("GuiService")
 
     local min = opts.Min or 0
     local max = opts.Max or 100
@@ -151,13 +149,9 @@ function M.new(root, row, opts)
     local dragging = false
 
     local function applyFromMouse()
-        local mouse = UserInputService:GetMouseLocation()
-        local inset = GuiService:GetGuiInset()
-        -- GetMouseLocation is true-screen; AbsolutePosition sits below the GUI
-        -- inset. Mixing them without this correction shifts the whole track.
-        local left = track.AbsolutePosition.X + inset.X
-        local width = track.AbsoluteSize.X
-        local fraction = width > 0 and (mouse.X - left) / width or 0
+        local mx = root:mouseInGuiSpace()
+        local left, width = track.AbsolutePosition.X, track.AbsoluteSize.X
+        local fraction = width > 0 and (mx - left) / width or 0
         self:Set(M.valueAt(fraction, self._min, self._max, self._decimals))
     end
 

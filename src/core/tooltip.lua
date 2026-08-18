@@ -41,7 +41,6 @@ end
 -- the Lua 5.4 harness requires this file to reach place().
 local UserInputService
 local RunService
-local GuiService
 
 local Tooltip = {}
 Tooltip.__index = Tooltip
@@ -54,7 +53,6 @@ local MAX_WIDTH = 220
 function M.new(root)
     UserInputService = UserInputService or game:GetService("UserInputService")
     RunService = RunService or game:GetService("RunService")
-    GuiService = GuiService or game:GetService("GuiService")
 
     local theme = root.theme
 
@@ -154,12 +152,8 @@ function Tooltip:_show(icon, text)
         { x = pos.X, y = pos.Y, w = size.X, h = size.Y },
         { w = self._frame.AbsoluteSize.X, h = self._frame.AbsoluteSize.Y },
         { w = viewport.X, h = viewport.Y })
-    -- place() works in screen space (it is derived from AbsolutePosition), but
-    -- Position is parent space, and the tooltip layer sits `inset` above the
-    -- screen origin because the ScreenGui ignores the GUI inset. Subtract the
-    -- layer's own offset or the tooltip floats away from its icon.
-    local layerOrigin = self._frame.Parent.AbsolutePosition
-    self._frame.Position = UDim2.fromOffset(x - layerOrigin.X, y - layerOrigin.Y)
+    self._frame.Position = UDim2.fromOffset(
+        self._root:toLayerSpace(x, y, self._frame.Parent))
 
     -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
     -- is the only genuinely bad failure here. So while one is visible -- and
@@ -169,11 +163,9 @@ function Tooltip:_show(icon, text)
             self:_hide()
             return
         end
-        local m = UserInputService:GetMouseLocation()
+        local mx, my = self._root:mouseInGuiSpace()
         local p, s = self._owner.AbsolutePosition, self._owner.AbsoluteSize
-        local inset = GuiService:GetGuiInset()
-        local mx, my = m.X, m.Y
-        local ax, ay = p.X + inset.X, p.Y + inset.Y
+        local ax, ay = p.X, p.Y
         if mx < ax or mx > ax + s.X or my < ay or my > ay + s.Y then
             self:_hide()
         end
