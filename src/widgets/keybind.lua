@@ -234,7 +234,17 @@ function Keybind:_capture(input)
             self:Set(input.UserInputType)
         end
         self:_endCapture()
+        return
     end
+
+    -- Anything else -- a wheel tick, a gamepad button, a touch -- matches
+    -- neither branch above. Treat it as a cancel rather than falling through:
+    -- an unhandled input type must not be able to leave _capturing (and the
+    -- GLOBAL root.capturing lock the window's toggle handler reads) stuck on,
+    -- since that failure is silent and takes out the toggle key for the rest
+    -- of the session. InputBegan never fires for mouse movement (that's
+    -- InputChanged), so this cannot cancel capture on a pointer twitch.
+    self:_endCapture()
 end
 
 function Keybind:_openModeMenu()
