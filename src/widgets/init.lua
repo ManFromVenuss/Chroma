@@ -7,4 +7,5 @@ return {
     Separator = require("widgets/separator"),
     Toggle = require("widgets/toggle"),
     Slider = require("widgets/slider"),
+    Dropdown = require("widgets/dropdown"),
 }
