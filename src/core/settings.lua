@@ -24,27 +24,33 @@ function M.build(root, window)
     -- The colorpicker is created before the mode dropdown so the dropdown's
     -- callback can reach it. A static accent is only meaningful alongside a
     -- colour, so the two are deliberately adjacent.
+    -- Three modes over two axes: whether the hue animates, and whether the
+    -- window outline runs a two-tone gradient. Gradient is the interesting one
+    -- and was found by accident -- an unanimated accent still hue-shifted the
+    -- outline's far end, which reads as a static sheen rather than a bug.
     local colour
     local mode = accent:Dropdown({
         Name = "Mode",
-        Options = { "RGB", "Static" },
-        Default = theme:isAnimated() and "RGB" or "Static",
-        Description = "RGB animates the accent through the hue wheel. Static holds the colour below.",
+        Options = { "RGB", "Gradient", "Static" },
+        Default = theme:isAnimated() and "RGB" or "Gradient",
+        Description = "RGB cycles the hue. Gradient holds one colour but keeps " ..
+            "the two-tone sheen on the outline. Static is a single flat colour.",
         Callback = function(value)
             if value == "RGB" then
                 window:setAccent("RGB")
             else
                 window:setAccent(colour:Get())
             end
+            window:setGradient(value ~= "Static")
         end,
     })
 
     colour = accent:Colorpicker({
         Name = "Colour",
         Default = theme:get("Accent"),
-        Description = "Used when Mode is Static.",
+        Description = "Used by Gradient and Static; RGB picks its own hue.",
         Callback = function(value)
-            if mode:Get() == "Static" then
+            if mode:Get() ~= "RGB" then
                 window:setAccent(value)
             end
         end,

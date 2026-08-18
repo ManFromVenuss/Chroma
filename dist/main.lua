@@ -1911,27 +1911,33 @@ function M.build(root, window)
     -- The colorpicker is created before the mode dropdown so the dropdown's
     -- callback can reach it. A static accent is only meaningful alongside a
     -- colour, so the two are deliberately adjacent.
+    -- Three modes over two axes: whether the hue animates, and whether the
+    -- window outline runs a two-tone gradient. Gradient is the interesting one
+    -- and was found by accident -- an unanimated accent still hue-shifted the
+    -- outline's far end, which reads as a static sheen rather than a bug.
     local colour
     local mode = accent:Dropdown({
         Name = "Mode",
-        Options = { "RGB", "Static" },
-        Default = theme:isAnimated() and "RGB" or "Static",
-        Description = "RGB animates the accent through the hue wheel. Static holds the colour below.",
+        Options = { "RGB", "Gradient", "Static" },
+        Default = theme:isAnimated() and "RGB" or "Gradient",
+        Description = "RGB cycles the hue. Gradient holds one colour but keeps " ..
+            "the two-tone sheen on the outline. Static is a single flat colour.",
         Callback = function(value)
             if value == "RGB" then
                 window:setAccent("RGB")
             else
                 window:setAccent(colour:Get())
             end
+            window:setGradient(value ~= "Static")
         end,
     })
 
     colour = accent:Colorpicker({
         Name = "Colour",
         Default = theme:get("Accent"),
-        Description = "Used when Mode is Static.",
+        Description = "Used by Gradient and Static; RGB picks its own hue.",
         Callback = function(value)
-            if mode:Get() == "Static" then
+            if mode:Get() ~= "RGB" then
                 window:setAccent(value)
             end
         end,
@@ -2088,6 +2094,7 @@ function Theme.new(opts)
         _accentSpeed = opts.AccentSpeed or 0.15,
         _accentSat = opts.AccentSaturation or 0.86,
         _accentVal = opts.AccentValue or 0.72,
+        _gradient = opts.Gradient ~= false,
     }, Theme)
 
     for key, value in pairs(TRANSPARENCY) do
@@ -2116,6 +2123,15 @@ end
 
 -- Mutates the stored palette only; existing bindings keep their old colour
 -- until the caller calls apply().
+-- Whether the outline runs a two-tone hue-shifted gradient or a single flat
+-- colour. Independent of whether the accent animates: "RGB" decides whether the
+-- hue moves over time, this decides whether the gradient's two ends differ at
+-- any given instant.
+function Theme:setGradient(enabled)
+    self._gradient = enabled ~= false
+    self:_recompute(self._clock or 0)
+end
+
 function Theme:setAccentSpeed(speed)
     if type(speed) ~= "number" then return end
     self._accentSpeed = speed
@@ -2150,7 +2166,14 @@ function Theme:_recompute(clock)
     d.Selection = accent
     d.Glow = accent
     d.HairA = accent
-    d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
+    -- HairA and HairB are the two ends of the gradient on the window outline
+    -- and the title bar's hairlines. Equal ends collapse it to a flat colour,
+    -- which is the whole difference between the Static and Gradient modes.
+    if self._gradient then
+        d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
+    else
+        d.HairB = accent
+    end
 end
 
 -- Advance the clock. Cheap when the accent is static: recompute is skipped.
@@ -2932,6 +2955,11 @@ end
 
 function Window:setAnimations(on)
     self._animate = on ~= false
+end
+
+function Window:setGradient(enabled)
+    self._theme:setGradient(enabled)
+    self._theme:apply()
 end
 
 function Window:setAccentSpeed(speed)

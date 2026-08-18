@@ -506,6 +506,11 @@ function Window:setAnimations(on)
     self._animate = on ~= false
 end
 
+function Window:setGradient(enabled)
+    self._theme:setGradient(enabled)
+    self._theme:apply()
+end
+
 function Window:setAccentSpeed(speed)
     self._theme:setAccentSpeed(speed)
     self._theme:apply()
