@@ -199,18 +199,20 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
-    -- A bottom strip for pinned entries, outside the rail's UIListLayout: a
-    -- list layout arranges every child, so a pinned button placed in it would
-    -- simply queue behind the others rather than sitting at the bottom.
+    -- A bottom strip for pinned entries. It is a sibling of the rail, NOT a
+    -- child of it, and that is the whole point: a UIListLayout arranges every
+    -- child of its parent, so parenting this to the rail made the list lay it
+    -- out as an ordinary item and the gear appeared at the TOP. Anchored over
+    -- the rail's own footprint instead, it is outside that layout's reach.
     local railBottom = Instance.new("Frame")
     railBottom.Name = "railBottom"
     railBottom.AnchorPoint = Vector2.new(0, 1)
     railBottom.Position = UDim2.new(0, 0, 1, 0)
-    railBottom.Size = UDim2.new(1, 0, 0, 36)
+    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 36)
     railBottom.BackgroundTransparency = 1
     railBottom.BorderSizePixel = 0
     railBottom.ZIndex = 6
-    railBottom.Parent = rail
+    railBottom.Parent = body
     self._railBottom = railBottom
 
     local railBottomLayout = Instance.new("UIListLayout")
