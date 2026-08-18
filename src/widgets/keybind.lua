@@ -143,19 +143,27 @@ function M.new(root, row, opts)
     -- Activated fires on button RELEASE, and that matters: starting capture from
     -- InputBegan would let the very same MouseButton1 press reach the capture
     -- handler below and instantly bind MOUSE1.
-    root:keep(field.frame.Activated:Connect(function()
-        -- Binding a mouse button ON the field consumes the press down in
-        -- _capture, but its RELEASE still arrives here as an Activated, which
-        -- would immediately re-enter capture -- the field flashed MOUSE1 and
-        -- then went straight back to listening. Swallow exactly that one.
+    -- Binding a mouse button ON the field consumes the press DOWN in _capture,
+    -- but its RELEASE still arrives as a click event on the field -- Activated
+    -- for button 1, MouseButton2Click for button 2. Unguarded, binding MOUSE1
+    -- flashed the bind and went straight back to listening, and binding MOUSE2
+    -- popped the mode menu open. One press produces only one of the two events,
+    -- so a single one-shot flag shared by both handlers is enough.
+    local function swallowed()
         if self._swallowActivated then
             self._swallowActivated = false
-            return
+            return true
         end
+        return false
+    end
+
+    root:keep(field.frame.Activated:Connect(function()
+        if swallowed() then return end
         self:_beginCapture()
     end))
 
     root:keep(field.frame.MouseButton2Click:Connect(function()
+        if swallowed() then return end
         self:_openModeMenu()
     end))
 

@@ -204,6 +204,10 @@ function M.new(root, opts)
     -- child of its parent, so parenting this to the rail made the list lay it
     -- out as an ordinary item and the gear appeared at the TOP. Anchored over
     -- the rail's own footprint instead, it is outside that layout's reach.
+    --
+    -- That footprint is shared implicitly: this lines up with the rail only
+    -- because the rail sits at (0, 0) and spans the body's full height. Give
+    -- the rail an offset and this drifts silently.
     local railBottom = Instance.new("Frame")
     railBottom.Name = "railBottom"
     railBottom.AnchorPoint = Vector2.new(0, 1)

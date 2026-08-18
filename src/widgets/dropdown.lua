@@ -211,7 +211,10 @@ function Dropdown:_caption()
     if not self._multi then
         -- "none" rather than a blank field: an empty control reads as broken
         -- rather than as an empty selection, and it matches what multi-select
-        -- already shows for the same state.
+        -- already shows for the same state. An option literally named "none"
+        -- displays identically; that collision is accepted rather than escaped,
+        -- since Get() still returns the real value and nothing else here
+        -- reserves the string.
         return self._value ~= nil and tostring(self._value) or "none"
     end
     local n, only = 0, nil

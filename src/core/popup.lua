@@ -91,8 +91,12 @@ function M.new(root)
             return
         end
 
+        -- Touch is included so a tap outside cannot leave a popup stuck open
+        -- forever on a touch-only target. Chroma is mouse-oriented and this is
+        -- untested there, but a silent dead end is worse than an untested line.
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.MouseButton2 then
+            and input.UserInputType ~= Enum.UserInputType.MouseButton2
+            and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
 

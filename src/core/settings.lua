@@ -32,7 +32,11 @@ function M.build(root, window)
     local mode = accent:Dropdown({
         Name = "Mode",
         Options = { "RGB", "Gradient", "Static" },
-        Default = theme:isAnimated() and "RGB" or "Gradient",
+        -- Read from the theme rather than assuming: a window constructed with
+        -- Gradient = false and a static accent would otherwise boot showing
+        -- "Gradient" while rendering flat hairlines.
+        Default = theme:isAnimated() and "RGB"
+            or (theme:isGradient() and "Gradient" or "Static"),
         Description = "RGB cycles the hue. Gradient holds one colour but keeps " ..
             "the two-tone sheen on the outline. Static is a single flat colour.",
         Callback = function(value)

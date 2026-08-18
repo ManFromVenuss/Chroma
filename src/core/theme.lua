@@ -104,6 +104,10 @@ function Theme:setGradient(enabled)
     self:_recompute(self._clock or 0)
 end
 
+function Theme:isGradient()
+    return self._gradient
+end
+
 function Theme:setAccentSpeed(speed)
     if type(speed) ~= "number" then return end
     self._accentSpeed = speed

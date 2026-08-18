@@ -1374,8 +1374,12 @@ function M.new(root)
             return
         end
 
+        -- Touch is included so a tap outside cannot leave a popup stuck open
+        -- forever on a touch-only target. Chroma is mouse-oriented and this is
+        -- untested there, but a silent dead end is worse than an untested line.
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.MouseButton2 then
+            and input.UserInputType ~= Enum.UserInputType.MouseButton2
+            and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
 
@@ -1919,7 +1923,11 @@ function M.build(root, window)
     local mode = accent:Dropdown({
         Name = "Mode",
         Options = { "RGB", "Gradient", "Static" },
-        Default = theme:isAnimated() and "RGB" or "Gradient",
+        -- Read from the theme rather than assuming: a window constructed with
+        -- Gradient = false and a static accent would otherwise boot showing
+        -- "Gradient" while rendering flat hairlines.
+        Default = theme:isAnimated() and "RGB"
+            or (theme:isGradient() and "Gradient" or "Static"),
         Description = "RGB cycles the hue. Gradient holds one colour but keeps " ..
             "the two-tone sheen on the outline. Static is a single flat colour.",
         Callback = function(value)
@@ -2130,6 +2138,10 @@ end
 function Theme:setGradient(enabled)
     self._gradient = enabled ~= false
     self:_recompute(self._clock or 0)
+end
+
+function Theme:isGradient()
+    return self._gradient
 end
 
 function Theme:setAccentSpeed(speed)
@@ -2655,6 +2667,10 @@ function M.new(root, opts)
     -- child of its parent, so parenting this to the rail made the list lay it
     -- out as an ordinary item and the gear appeared at the TOP. Anchored over
     -- the rail's own footprint instead, it is outside that layout's reach.
+    --
+    -- That footprint is shared implicitly: this lines up with the rail only
+    -- because the rail sits at (0, 0) and spans the body's full height. Give
+    -- the rail an offset and this drifts silently.
     local railBottom = Instance.new("Frame")
     railBottom.Name = "railBottom"
     railBottom.AnchorPoint = Vector2.new(0, 1)
@@ -3968,7 +3984,10 @@ function Dropdown:_caption()
     if not self._multi then
         -- "none" rather than a blank field: an empty control reads as broken
         -- rather than as an empty selection, and it matches what multi-select
-        -- already shows for the same state.
+        -- already shows for the same state. An option literally named "none"
+        -- displays identically; that collision is accepted rather than escaped,
+        -- since Get() still returns the real value and nothing else here
+        -- reserves the string.
         return self._value ~= nil and tostring(self._value) or "none"
     end
     local n, only = 0, nil
@@ -4275,19 +4294,27 @@ function M.new(root, row, opts)
     -- Activated fires on button RELEASE, and that matters: starting capture from
     -- InputBegan would let the very same MouseButton1 press reach the capture
     -- handler below and instantly bind MOUSE1.
-    root:keep(field.frame.Activated:Connect(function()
-        -- Binding a mouse button ON the field consumes the press down in
-        -- _capture, but its RELEASE still arrives here as an Activated, which
-        -- would immediately re-enter capture -- the field flashed MOUSE1 and
-        -- then went straight back to listening. Swallow exactly that one.
+    -- Binding a mouse button ON the field consumes the press DOWN in _capture,
+    -- but its RELEASE still arrives as a click event on the field -- Activated
+    -- for button 1, MouseButton2Click for button 2. Unguarded, binding MOUSE1
+    -- flashed the bind and went straight back to listening, and binding MOUSE2
+    -- popped the mode menu open. One press produces only one of the two events,
+    -- so a single one-shot flag shared by both handlers is enough.
+    local function swallowed()
         if self._swallowActivated then
             self._swallowActivated = false
-            return
+            return true
         end
+        return false
+    end
+
+    root:keep(field.frame.Activated:Connect(function()
+        if swallowed() then return end
         self:_beginCapture()
     end))
 
     root:keep(field.frame.MouseButton2Click:Connect(function()
+        if swallowed() then return end
         self:_openModeMenu()
     end))
 
