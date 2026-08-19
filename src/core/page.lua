@@ -46,11 +46,11 @@ function Tab.new(root, page, name)
     }, Tab)
 
     -- AbsoluteSize is (0, 0) until the holder has rendered once, so columns
-    -- created in the same frame as their page would all be assigned zero width
-    -- -- the same trap that seeded every star particle at the origin in M1.
-    -- Re-laying out whenever the holder's size actually changes is self-healing:
-    -- it covers first render, window resize and page switching in one line,
-    -- without anyone having to remember to call relayout().
+    -- created in the same frame as their page would all get zero width -- the
+    -- same trap that seeded every star particle at the origin in M1.
+    -- Re-laying out whenever the holder's size actually changes covers first
+    -- render, window resize and page switching in one line, with nobody
+    -- needing to remember to call relayout().
     root:keep(holder:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
         self:_layout()
     end))
@@ -93,9 +93,9 @@ function M.new(root, window, opts)
     button.BackgroundTransparency = 1
     button.Text = ""
     button.AutoButtonColor = false
-    -- A pinned page sits in the rail's bottom strip rather than in its list, so
-    -- it stays visually separated from the consumer's pages however many they
-    -- add. Today that is only the settings page.
+    -- A pinned page sits in the rail's bottom strip rather than its list, so
+    -- it stays visually separated from the consumer's pages however many
+    -- there are. Today that is only the settings page.
     button.Parent = opts.Pinned and window._railBottom or window._rail
     root:keep(button)
 
@@ -104,7 +104,7 @@ function M.new(root, window, opts)
     -- Overhangs the button by 1px top and bottom: flush with the button, the
     -- marker reads visibly shorter than the RailActive highlight beside it.
     -- The 1px each side sits in the 2px gap the rail layout leaves between
-    -- buttons, so it cannot collide with a neighbour.
+    -- buttons, so it can't collide with a neighbour.
     marker.Size = UDim2.new(0, 2, 1, 2)
     marker.Position = UDim2.fromOffset(0, -1)
     marker.BorderSizePixel = 0
@@ -112,9 +112,9 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    -- Lucide icon baking is a later milestone. An rbxassetid works for free
-    -- because it is just an Image; anything else falls back to the page name's
-    -- first letter, which is the fallback the library spec already documents.
+    -- Lucide icon baking is a later milestone. An rbxassetid works already
+    -- because it is just an Image; anything else falls back to the page
+    -- name's first letter, per the library spec.
     local glyph
     if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
         glyph = Instance.new("ImageLabel")
@@ -123,12 +123,11 @@ function M.new(root, window, opts)
         glyph.BackgroundTransparency = 1
     else
         glyph = Instance.new("TextLabel")
-        -- A non-asset Icon string is used VERBATIM, which is how the settings
-        -- page gets its gear: U+2699, verified in-game to render in both Ubuntu
-        -- and Code (the same probe drew U+2731 as an empty box, so the check
-        -- discriminates). Falling back to the page's initial keeps every other
-        -- page working unchanged, and M5 swaps in a Lucide gear by passing an
-        -- asset id instead.
+        -- A non-asset Icon string is used verbatim, which is how the settings
+        -- page gets its gear: U+2699, verified in-game to render in both
+        -- Ubuntu and Code (U+2731 drew as an empty box in the same probe).
+        -- Falling back to the page's initial keeps every other page working
+        -- unchanged; M5 swaps in a Lucide gear via an asset id instead.
         glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
             or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
@@ -169,8 +168,8 @@ function M.new(root, window, opts)
     subtabRule.Parent = subtabBar
     theme:bind(subtabRule, "BackgroundColor3", "ContainerBorder")
 
-    -- The buttons get their own frame because a UIListLayout arranges EVERY
-    -- child of its parent -- including the 1px rule, which is full width and
+    -- The buttons get their own frame because a UIListLayout arranges every
+    -- child of its parent, including the 1px rule, which is full width and
     -- would consume the whole row and push the buttons off the end.
     local subtabList = Instance.new("Frame")
     subtabList.Name = "list"
@@ -240,10 +239,10 @@ function Page:setActive(active)
 end
 
 function Page:Tab(name)
-    -- A page is either tabbed or it is not. Columns added straight to the page
-    -- live in an implicit tab that has no button, so a real tab created
-    -- afterwards would strand them the moment the user switches -- with no way
-    -- back. Nothing sensible to do but refuse.
+    -- A page is either tabbed or it is not. Columns added straight to the
+    -- page live in an implicit tab with no button, so a real tab created
+    -- afterwards would strand them the moment the user switches, with no way
+    -- back -- refuse instead.
     if self._implicit then
         error(string.format(
             "chroma: page '%s' already has columns added directly; call :Tab() " ..
@@ -289,9 +288,9 @@ function Page:Tab(name)
     self._columnArea.Position = UDim2.fromOffset(PADDING, SUBTAB_HEIGHT + PADDING)
     self._columnArea.Size = UDim2.new(1, -PADDING * 2, 1, -(SUBTAB_HEIGHT + PADDING * 2))
 
-    -- Restyle every tab, not just the first: setActiveTab is what binds each
-    -- button's colour, so a tab added later would otherwise keep Roblox's
-    -- default TextButton colour until something else triggered a restyle.
+    -- Restyle every tab, not just the first: setActiveTab binds each button's
+    -- colour, so a tab added later would otherwise keep Roblox's default
+    -- TextButton colour until something triggered a restyle.
     self:setActiveTab(self._activeTab or tab)
     return tab
 end
@@ -311,8 +310,8 @@ function Page:setActiveTab(tab)
         end
         if active then t:_layout() end
     end
-    -- A popup opened from a row in the outgoing tab has no link to it and would
-    -- be left floating over the incoming one.
+    -- A popup opened from a row in the outgoing tab has no link to it and
+    -- would be left floating over the incoming one.
     self._window:_layoutChanged()
 end
 
@@ -326,8 +325,8 @@ function Page:Column(opts)
         self._implicit.holder.Visible = true
     elseif not self._implicit then
         -- Real tabs exist, so a bare :Column() would land in whichever tab is
-        -- currently active -- fine when there is one, ambiguous when there are
-        -- several, and invisible either way. Make the caller say which.
+        -- currently active: fine with one tab, ambiguous with several, and
+        -- invisible either way. Make the caller say which.
         error(string.format(
             "chroma: page '%s' has sub-tabs; add columns to a tab, not the page",
             tostring(self.name)), 2)

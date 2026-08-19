@@ -1,4 +1,4 @@
--- The window shell: separate translucent title bar, icon rail, body holding the
+-- The window shell: translucent title bar, icon rail, body holding the
 -- backdrop, drag, resize, and the open/close animation.
 --
 -- Layout, from the spec: title bar 24px, 4px gap to the body, rail 28px,
@@ -11,7 +11,7 @@ local Popup = require("core/popup")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
--- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
+-- Resolved lazily in M.new: a module-scope game:GetService() runs on require.
 local UserInputService
 
 local M = {}
@@ -40,14 +40,14 @@ function M.new(root, opts)
         _layoutListeners = {},
     }, Window)
 
-    -- Frame keeps AnchorPoint (0,0) forever: it is the drag origin AND the
-    -- animation origin, so the two can never disagree.
+    -- Frame keeps AnchorPoint (0,0) forever: it is both the drag origin and
+    -- the animation origin, so the two can't disagree.
     local viewport = workspace.CurrentCamera.ViewportSize
     -- ViewportSize is screen space; Position is parent (windowLayer) space.
     -- The layer's ScreenGui sets IgnoreGuiInset = true, so the layer's origin
     -- sits `inset` above the screen origin, and layer.AbsolutePosition.Y is
-    -- that inset as a negative offset (e.g. -58). Subtracting it here cancels
-    -- the offset instead of hardcoding a GUI inset that isn't constant across
+    -- that inset as a negative offset (e.g. -58). Subtracting it cancels the
+    -- offset instead of hardcoding a GUI inset that isn't constant across
     -- setups (topbar height varies with platform/device).
     local frame = Instance.new("Frame")
     frame.Name = "window"
@@ -62,15 +62,14 @@ function M.new(root, opts)
     frame.Parent = root.windowLayer
     self._frame = root:keep(frame)
 
-    -- Deliberately no stroke on `frame`. Its bounds enclose the title bar as
-    -- well as the body, so a stroke here would outline the bar too -- and the
-    -- bar is meant to read as a detached strip defined only by its two gradient
-    -- hairlines. The window's outline is the body's own stroke, added below.
+    -- No stroke on `frame`: its bounds enclose the title bar as well as the
+    -- body, so a stroke here would outline the bar too, and the bar is meant
+    -- to read as a detached strip defined only by its two gradient hairlines.
+    -- The window's outline is the body's own stroke, added below.
     --
-    -- A soft glow was tried here and removed: Roblox has no real bloom, so it
-    -- was stacked UIStrokes, which band into visibly separate rings rather than
-    -- a falloff. A genuine glow would need a 9-slice radial sprite uploaded as
-    -- an image asset.
+    -- A soft glow was tried and removed: Roblox has no real bloom, so it was
+    -- stacked UIStrokes, which band into separate rings rather than a falloff.
+    -- A genuine glow would need a 9-slice radial sprite as an image asset.
 
     --== title bar: its own strip, translucent, detached by a gap ==--
     local bar = Instance.new("Frame")
@@ -82,15 +81,15 @@ function M.new(root, opts)
     theme:bind(bar, "BackgroundColor3", "TitleBar", "BackgroundTransparency")
     self._bar = bar
 
-    -- Deliberately no UIStroke on the bar. The two gradient hairlines below
-    -- already define its top and bottom edges, and a stroke drew a second,
-    -- fainter accent line immediately beneath the bottom hairline. The bar is a
-    -- floating strip, so leaving its left and right edges unbordered reads fine
-    -- -- the body keeps its own stroke, and that is what outlines the window.
+    -- No UIStroke on the bar. The two gradient hairlines below already define
+    -- its top and bottom edges; a stroke drew a second, fainter accent line
+    -- just beneath the bottom hairline. The bar is a floating strip, so its
+    -- unbordered left and right edges read fine -- the body's own stroke is
+    -- what outlines the window.
 
-    -- White base colour on purpose: a UIGradient MULTIPLIES the element's
-    -- colour, and a Frame defaults to grey (163,162,165), which would render
-    -- the gradient at about 64% intensity.
+    -- White base colour: a UIGradient multiplies the element's colour, and a
+    -- Frame defaults to grey (163,162,165), which would render the gradient
+    -- at about 64% intensity.
     local hair = Instance.new("Frame")
     hair.Name = "hairline"
     hair.Size = UDim2.new(1, 0, 0, 2)
@@ -103,10 +102,9 @@ function M.new(root, opts)
     hairGradient.Parent = hair
     self._hairGradient = hairGradient
 
-    -- Mirrored along the bottom edge so the bar reads symmetrically: without
-    -- this the 1px stroke plus the top hairline made the top read as a bright
-    -- ~3px band against a thin 1px bottom, which looked unbalanced on a
-    -- detached floating strip.
+    -- Mirrored along the bottom edge for symmetry: without it, the 1px stroke
+    -- plus the top hairline made the top read as a bright ~3px band against a
+    -- thin 1px bottom, unbalanced on a detached floating strip.
     local hairBottom = Instance.new("Frame")
     hairBottom.Name = "hairlineBottom"
     hairBottom.Size = UDim2.new(1, 0, 0, 2)
@@ -147,15 +145,15 @@ function M.new(root, opts)
 
     local body = Instance.new("Frame")
     body.Name = "body"
-    -- Inset by 1px on every side. A UIStroke draws OUTWARD from its element's
+    -- Inset by 1px on every side. A UIStroke draws outward from its element's
     -- bounds, and `contents` clips its descendants, so a body filling contents
-    -- exactly has its stroke drawn straight into the clipped region and cut
-    -- away -- invisible. The 1px margin is exactly the thickness of the stroke,
-    -- so it reads as an outline on the window edge with no visible gap.
+    -- exactly has its stroke drawn into the clipped region and cut away. The
+    -- 1px margin is exactly the stroke's thickness, so it reads as an outline
+    -- on the window edge with no visible gap.
     body.Size = UDim2.new(1, -2, 1, -2)
     body.Position = UDim2.fromOffset(1, 1)
-    -- Opaque: the backdrop fills it. Translucency here would show the game world
-    -- behind the forest, which reads as a bug.
+    -- Opaque: the backdrop fills it. Translucency here would show the game
+    -- world behind the forest.
     body.BackgroundTransparency = 0
     body.BorderSizePixel = 0
     body.ClipsDescendants = true
@@ -163,11 +161,11 @@ function M.new(root, opts)
     theme:bind(body, "BackgroundColor3", "Body")
     self._body = body
 
-    -- The outline carries the SAME hue-shifted gradient as the title bar's
+    -- The outline carries the same hue-shifted gradient as the title bar's
     -- hairlines, so the bar and the window read as one piece rather than two
     -- accent colours side by side. A UIGradient parented to a UIStroke tints
     -- the stroke; the stroke's own Color must stay white or it multiplies the
-    -- gradient down, so this one is deliberately not theme-bound.
+    -- gradient down, so this one is not theme-bound.
     local bodyStroke = Instance.new("UIStroke")
     bodyStroke.Thickness = 1
     bodyStroke.Color = Color3.new(1, 1, 1)
@@ -199,13 +197,13 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
-    -- A bottom strip for pinned entries. It is a sibling of the rail, NOT a
-    -- child of it, and that is the whole point: a UIListLayout arranges every
-    -- child of its parent, so parenting this to the rail made the list lay it
-    -- out as an ordinary item and the gear appeared at the TOP. Anchored over
-    -- the rail's own footprint instead, it is outside that layout's reach.
+    -- A bottom strip for pinned entries, a sibling of the rail rather than a
+    -- child of it: a UIListLayout arranges every child of its parent, so
+    -- parenting this to the rail made the list lay it out as an ordinary item
+    -- and the gear appeared at the top. Anchored over the rail's own
+    -- footprint instead, it sits outside that layout's reach.
     --
-    -- That footprint is shared implicitly: this lines up with the rail only
+    -- The footprint is shared implicitly: this lines up with the rail only
     -- because the rail sits at (0, 0) and spans the body's full height. Give
     -- the rail an offset and this drifts silently.
     local railBottom = Instance.new("Frame")
@@ -227,10 +225,10 @@ function M.new(root, opts)
     railBottomLayout.Padding = UDim.new(0, 5)
     railBottomLayout.Parent = railBottom
 
-    -- A UIListLayout arranges EVERY child, so the rule is part of the list
+    -- A UIListLayout arranges every child, so the rule is part of the list
     -- rather than positioned over it -- the same trap that made the sub-tab
     -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
-    -- buttons, which is what "separated from the pages" means visually.
+    -- buttons, separating it visually from the pages.
     local railRule = Instance.new("Frame")
     railRule.Name = "rule"
     railRule.Size = UDim2.new(1, -12, 0, 1)
@@ -253,8 +251,9 @@ function M.new(root, opts)
     self._pages = {}
     self._activePage = nil
 
-    -- The tooltip and popup managers are owned by the window and reached through
-    -- root, so row.lua and every widget can use them without being handed one.
+    -- The tooltip and popup managers are owned by the window and reached
+    -- through root, so row.lua and every widget can use them without being
+    -- handed one.
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
@@ -264,19 +263,16 @@ function M.new(root, opts)
         frame.Position = UDim2.fromOffset(start.X + delta.X, start.Y + delta.Y)
         self:_layoutChanged()
     end, function()
-        -- AbsolutePosition is screen space; Position is parent space. With
-        -- IgnoreGuiInset = true the window layer sits `inset` above the
-        -- screen origin, so those two spaces differ by the GUI inset. Reading
-        -- AbsolutePosition here but writing Position above teleported the
-        -- window by the inset on every mouse-down. Read from the same space
-        -- we write to instead.
+        -- Same space mismatch as above: reading AbsolutePosition here but
+        -- writing Position teleported the window by the GUI inset on every
+        -- mouse-down. Read from the same space that gets written to.
         return Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
     end)
 
-    -- The grip is now an L outline hugging the corner rather than a filled
-    -- square: the TextButton stays exactly as it was (same size/position, same
-    -- drag wiring below) as the hit area, but becomes fully transparent, and
-    -- two thin accent bars drawn on top of it form the visible corner.
+    -- The grip is an L outline hugging the corner rather than a filled square:
+    -- the TextButton keeps its size, position and drag wiring as the hit area
+    -- but is fully transparent, and two thin accent bars drawn on top of it
+    -- form the visible corner.
     local grip = Instance.new("TextButton")
     grip.Name = "grip"
     grip.Size = UDim2.fromOffset(12, 12)
@@ -309,7 +305,7 @@ function M.new(root, opts)
     theme:bind(gripRight, "BackgroundColor3", "Accent")
 
     self:_makeDragHandle(grip, function(delta, start)
-        -- Read the viewport at drag time, not at construction: the player may
+        -- Read the viewport at drag time, not construction: the player may
         -- resize or fullscreen the Roblox window mid-session.
         local liveViewport = workspace.CurrentCamera.ViewportSize
         local maxW = math.max(self._minSize.X, liveViewport.X)
@@ -337,14 +333,14 @@ function M.new(root, opts)
     end)
 
     --== toggle key ==--
-    -- gameProcessedEvent is IGNORED by default: games sink keys, and O is sunk
-    -- in one of the target games. RespectGameProcessed opts into politeness.
+    -- gameProcessedEvent is ignored by default: games sink keys, and O is
+    -- sunk in one of the target games. RespectGameProcessed opts into that.
     self._toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
     local respect = opts.RespectGameProcessed == true
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if respect and gameProcessed then return end
-        -- A Keybind capture owns the keyboard while it is open, or binding the
-        -- toggle key would bind it AND close the menu in one press.
+        -- A Keybind capture owns the keyboard while it is open, or binding
+        -- the toggle key would bind it and close the menu in one press.
         if root.capturing then return end
         local key = self._toggleKey
         if key == nil then return end
@@ -356,8 +352,7 @@ function M.new(root, opts)
     end))
 
     -- Only one root:onFrame handler is allowed (Root:onFrame asserts on a
-    -- second registration), so all window per-frame work lives in this one
-    -- callback.
+    -- second registration), so all per-frame window work lives here.
     root:onFrame(function(dt)
         self._backdrop:step(dt)
         local hairColor = ColorSequence.new(
@@ -367,9 +362,9 @@ function M.new(root, opts)
         self._bodyStrokeGradient.Color = hairColor
     end)
 
-    -- Built before any consumer page exists, which is fine because a pinned page
+    -- Built before any consumer page exists; fine, because a pinned page
     -- never auto-activates. Opting out is one flag rather than a separate
-    -- constructor, since a consumer who does not want it is the rare case.
+    -- constructor, since a consumer who doesn't want it is the rare case.
     if opts.Settings ~= false then
         self._settingsPage = Settings.build(root, self)
     end
@@ -382,8 +377,7 @@ function M.new(root, opts)
 end
 
 -- Anything that reflows or replaces the view. The popup manager is the only
--- subscriber today; keeping it a list means the next one does not have to
--- rewrite this.
+-- subscriber today; a list means the next one doesn't have to rewrite this.
 function Window:onLayoutChanged(fn)
     table.insert(self._layoutListeners, fn)
 end
@@ -440,7 +434,7 @@ function Window:Page(opts)
     table.insert(self._pages, page)
     -- A pinned page must never become the default view. The settings page is
     -- built before any consumer page exists, so plain "first page wins" would
-    -- open the menu on Settings every single time.
+    -- open the menu on Settings every time.
     if not self._activePage and not page.pinned then
         self:setActivePage(page)
     else
@@ -473,8 +467,8 @@ function Window:close()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
     -- Stars keep no state worth preserving, so pausing while hidden is free.
-    -- +0.01 is a deliberate one-frame margin so the pause lands just after the
-    -- final tween completes rather than racing it.
+    -- +0.01 is a one-frame margin so the pause lands just after the final
+    -- tween completes rather than racing it.
     task.delay(Anim.closeDuration() + 0.01, function()
         if not self._root:isAlive() then return end
         if not self._anim:isOpen() then
@@ -500,7 +494,7 @@ function Window:setAccent(accent)
     self._theme:apply()
 end
 
--- Accepts a KeyCode or a bindable UserInputType, or nil for no toggle at all.
+-- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)
     self._toggleKey = key

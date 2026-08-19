@@ -1,6 +1,6 @@
--- Window backdrop: cover-crop maths plus (from a later task) the image and star pool.
--- computeCover is pure and unit tested; keep it free of Instance calls.
--- Lua 5.4 / Luau intersection.
+-- Window backdrop: cover-crop maths plus the image and star pool.
+-- computeCover is pure and unit tested; keep it free of Instance calls, in
+-- the Lua 5.4 / Luau intersection.
 
 local M = {}
 
@@ -14,8 +14,7 @@ function M.computeCover(windowW, windowH, aspect, shift)
     shift = shift or 0
     -- A negative shift would shrink the oversize factor below the base size
     -- without moving the offset back up enough, uncovering the bottom edge
-    -- (or the right edge on the width-bound branch). Clamp at 0: this
-    -- function is the single source of truth for the covering invariant.
+    -- (or the right edge on the width-bound branch). Clamp at 0.
     if shift < 0 then shift = 0 end
     if windowW <= 0 or windowH <= 0 then return 0, 0, 0 end
 
@@ -34,17 +33,16 @@ end
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
 local IMAGE_ASPECT = 1024 / 576
--- "forest background" -- the IMAGE (AssetTypeId 1), not the Decal that wraps it.
---
--- Use the texture id, never the decal id. Uploading an image to Roblox creates
--- two assets: a Decal (type 13) and the Image (type 1) it points at. An
--- ImageLabel needs the Image. The Creator Store page shows the decal id; the
--- "copy texture ID" button gives this one. Recoverable in-game too, via
+-- "forest background": the Image (AssetTypeId 1), not the Decal that wraps
+-- it. Uploading an image to Roblox creates two assets, a Decal (type 13) and
+-- the Image (type 1) it points at; an ImageLabel needs the Image. The
+-- Creator Store page shows the decal id; the "copy texture ID" button gives
+-- this one. Recoverable in-game too, via
 -- getobjects("rbxassetid://<decal>")[1].Texture.
 --
--- The two are moderated SEPARATELY, and the decal clears first: at the time of
--- writing the decal reported Completed while this image was still Pending. A
--- Pending image renders blank, which is what made the first upload look broken.
+-- The two are moderated separately, and the decal clears first: at the time
+-- of writing the decal reported Completed while this image was still
+-- Pending, which renders blank and made the first upload look broken.
 local DEFAULT_IMAGE = "rbxassetid://109006147881359"
 
 local Backdrop = {}
@@ -82,10 +80,10 @@ function M.new(root, holder, opts)
 
     self._maxSize = opts.MaxSize or 3
 
-    -- ONE cleanup closure covering the whole pool, registered once. A keep per
-    -- star would grow the junk list every time setCount raises the count from
-    -- the settings slider -- and the per-star keeps were always redundant, since
-    -- every dot is a descendant of the ScreenGui that Unload destroys anyway.
+    -- One cleanup closure for the whole pool, registered once. A keep per
+    -- star would grow the junk list every time setCount raises the count
+    -- from the settings slider, and would be redundant anyway, since every
+    -- dot is a descendant of the ScreenGui that Unload destroys.
     root:keep(function()
         for i = 1, #self._stars do
             self._stars[i].obj:Destroy()
@@ -146,7 +144,7 @@ function Backdrop:_reseed(star, first)
     star.tHold = rng:NextNumber(0.4, 3.0)
     star.tOut = rng:NextNumber(0.4, 1.6)
     if first then
-        -- Stagger initial phases, otherwise every star fades in together on the
+        -- Stagger initial phases, or every star fades in together on the
         -- first frame and the randomness is invisible for the first cycle.
         star.phase = rng:NextInteger(1, 4)
         star.clock = rng:NextNumber() * 2
@@ -172,10 +170,10 @@ function Backdrop:resize(w, h)
     self._image.Size = UDim2.fromOffset(math.ceil(iw), math.ceil(ih))
     self._image.Position = UDim2.new(0.5, 0, 1, math.floor(offset))
 
-    -- AbsoluteSize is (0, 0) until the holder has been rendered at least once,
-    -- so the star pool in M.new is always seeded against zeros. The first real
-    -- resize (called with the holder's actual size) is what actually places
-    -- the stars; reseed them fresh instead of trying to scale up from 0.
+    -- AbsoluteSize is (0, 0) until the holder has rendered at least once, so
+    -- the star pool in M.new is always seeded against zeros. The first real
+    -- resize, with the holder's actual size, is what places the stars;
+    -- reseed them fresh rather than scale up from 0.
     if prevW == 0 or prevH == 0 then
         for i = 1, #self._stars do
             self:_reseed(self._stars[i], true)

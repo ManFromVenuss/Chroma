@@ -1,7 +1,7 @@
--- Tooltip: the pure placement maths, plus (from a later task) the single reused
--- frame in the tooltip layer.
+-- Tooltip: the pure placement maths, plus the single reused frame in the
+-- tooltip layer.
 --
--- place() is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- place() is unit tested, so it stays in the Lua 5.4 / Luau intersection --
 -- no compound assignment, no bitwise ops, no goto.
 
 local M = {}
@@ -12,10 +12,9 @@ M.Y_NUDGE = -3  -- lifts the tooltip so its text sits level with the icon, not b
 
 -- Anchored placement beside `anchor`, flipping left and clamping up as needed.
 --
--- Everything here is in one coordinate space -- the anchor's -- which is the
--- quiet advantage of anchoring over following the cursor: GetMouseLocation
--- never enters the calculation, so the GUI-inset mismatch that caused two M1
--- bugs cannot happen.
+-- All in the anchor's coordinate space, which is the advantage of anchoring
+-- over following the cursor: GetMouseLocation never enters into it, so the
+-- GUI-inset mismatch that caused two M1 bugs can't happen.
 function M.place(anchor, tip, viewport, gap, margin)
     gap = gap or M.GAP
     margin = margin or M.MARGIN
@@ -37,8 +36,8 @@ end
 
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
--- Resolved lazily: a module-scope game:GetService() executes on require, and
--- the Lua 5.4 harness requires this file to reach place().
+-- Resolved lazily: a module-scope game:GetService() runs on require, and the
+-- Lua 5.4 harness requires this file to reach place().
 local UserInputService
 local RunService
 
@@ -48,8 +47,8 @@ Tooltip.__index = Tooltip
 local DELAY = 0.15
 local MAX_WIDTH = 220
 
--- One manager per window, owning ONE reused frame -- the same pooling reasoning
--- as the star particles. Rows attach to it; they never create tooltips.
+-- One manager per window, owning one reused frame -- the same pooling as the
+-- star particles. Rows attach to it; they never create tooltips.
 function M.new(root)
     UserInputService = UserInputService or game:GetService("UserInputService")
     RunService = RunService or game:GetService("RunService")
@@ -63,10 +62,10 @@ function M.new(root)
     frame.BorderSizePixel = 0
     frame.Visible = false
     frame.ZIndex = 10
-    -- Active stays false and no button is used: the tooltip must NEVER
-    -- intercept input. If it did, a tooltip placed over its own icon would
-    -- steal the pointer, fire MouseLeave on the icon, hide itself, and
-    -- immediately re-trigger -- a hide/show flicker loop.
+    -- Active stays false and no button is used: the tooltip must never
+    -- intercept input, or one placed over its own icon would steal the
+    -- pointer, fire MouseLeave on the icon, hide itself, and immediately
+    -- re-trigger -- a hide/show flicker loop.
     frame.Parent = root.tooltipLayer
     root:keep(frame)
     theme:bind(frame, "BackgroundColor3", "Window")
@@ -92,9 +91,9 @@ function M.new(root)
     label.TextSize = 11
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Top
-    -- Wrapping is correct HERE and nowhere else in Chroma: this is a standalone
-    -- floating frame, not a child of an auto-sizing container, so a re-flow
-    -- cannot under-size anything around it.
+    -- Wrapping is correct here and nowhere else in Chroma: this is a
+    -- standalone floating frame, not a child of an auto-sizing container, so
+    -- a re-flow can't under-size anything around it.
     label.TextWrapped = true
     label.ZIndex = 11
     label.Parent = frame
@@ -110,8 +109,8 @@ function M.new(root)
         _owner = nil,
     }, Tooltip)
 
-    -- ONE cleanup closure for the watch connection, registered once. Registering
-    -- per show would grow the junk list on every hover.
+    -- One cleanup closure for the watch connection, registered once. Per-show
+    -- registration would grow the junk list on every hover.
     root:keep(function()
         if self._watch then
             self._watch:Disconnect()
@@ -155,9 +154,9 @@ function Tooltip:_show(icon, text)
     self._frame.Position = UDim2.fromOffset(
         self._root:toLayerSpace(x, y, self._frame.Parent))
 
-    -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
-    -- is the only genuinely bad failure here. So while one is visible -- and
-    -- only then -- confirm each frame that the pointer is still over the icon.
+    -- MouseLeave is unreliable when the pointer moves fast, and a stuck
+    -- tooltip is the only genuinely bad failure here, so while one is
+    -- visible, confirm each frame that the pointer is still over the icon.
     self._watch = RunService.RenderStepped:Connect(function()
         if not self._owner or not self._owner.Parent then
             self:_hide()
@@ -175,10 +174,10 @@ end
 -- Called by the row builder for every (?) icon that has a description.
 --
 -- The pending timer is tagged with the icon it belongs to (_pendingIcon), and
--- MouseLeave only tears it down if it's still that icon's timer. This must
--- not assume any ordering between MouseEnter/MouseLeave firing on different
--- GuiObjects -- Roblox gives no such guarantee, and a fast sweep across a
--- column of icons can deliver icon B's Enter before icon A's Leave.
+-- MouseLeave only tears it down if it's still that icon's timer: Roblox gives
+-- no ordering guarantee between MouseEnter/MouseLeave on different
+-- GuiObjects, and a fast sweep across a column of icons can deliver icon B's
+-- Enter before icon A's Leave.
 function Tooltip:attach(icon, text)
     self._root:keep(icon.MouseEnter:Connect(function()
         if self._timer then task.cancel(self._timer) end

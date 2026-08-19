@@ -1,26 +1,25 @@
 -- Two-stage open/close sequencer.
 --
--- The window frame keeps AnchorPoint (0, 0) permanently, which is also its drag
--- origin, so animation and dragging never disagree about where the window is.
--- Everything shrinks Size toward that fixed corner; Position is never touched.
--- The body never moves horizontally: only the frame's Size animates, so the
--- title bar widens/narrows and the frame unfolds/collapses vertically, with no
--- separate contents slide to read as a third, disjointed motion.
+-- The window frame keeps AnchorPoint (0, 0) permanently, also its drag
+-- origin, so animation and dragging never disagree about where the window
+-- is. Everything shrinks Size toward that fixed corner; Position is never
+-- touched. The body never moves horizontally: only the frame's Size
+-- animates, so the title bar widens/narrows and the frame unfolds/collapses
+-- vertically, with no separate contents slide to read as a third motion.
 local Guard = require("util/guard")
 
--- Resolved lazily in M.new. A module-scope game:GetService() executes on require,
--- which breaks the Lua 5.4 test harness the moment any suite requires this file --
--- exactly the failure core/cursor.lua hit.
+-- Resolved lazily in M.new: a module-scope game:GetService() runs on
+-- require, which breaks the Lua 5.4 test harness the moment any suite
+-- requires this file -- the same failure core/cursor.lua hit.
 local TweenService
 
 local M = {}
 
 -- Offsets and durations in seconds. Total is 0.33s each way.
 --
--- The stages are deliberately SEPARATED by a 0.05s gap rather than overlapped:
--- each stage finishes before the next begins, so the two reads as "bar, then
--- frame" instead of one blended motion. Overlapping them was tried first and
--- felt mushy.
+-- The stages are separated by a 0.05s gap rather than overlapped: each stage
+-- finishes before the next begins, so the two read as "bar, then frame"
+-- instead of one blended motion. Overlapping felt mushy.
 M.TIMING = {
     open = {
         bar    = { delay = 0.00, time = 0.12 },
@@ -54,8 +53,8 @@ function M.new(root, parts)
     }, Anim)
 
     -- One cleanup closure covers every tween this instance ever creates.
-    -- Registering a closure per-tween (as _tween used to) would append to
-    -- root's junk list on every open/close, growing it without bound.
+    -- A closure per-tween would append to root's junk list on every
+    -- open/close, growing it without bound.
     root:keep(function()
         for i = 1, #self._tweens do
             pcall(function() self._tweens[i]:Cancel() end)
@@ -70,8 +69,9 @@ function Anim:isOpen()
     return self._open
 end
 
--- Longest end-to-end duration of a close, derived from TIMING so a retune of the
--- table cannot desynchronise callers that need to know when the window is gone.
+-- Longest end-to-end duration of a close, derived from TIMING so a retune of
+-- the table can't desynchronise callers that need to know when the window is
+-- gone.
 function M.closeDuration()
     local t = M.TIMING.close
     local total = 0
@@ -84,8 +84,8 @@ end
 
 function Anim:_tween(object, time, delay, props, easing, direction)
     -- TweenInfo.new(Time, EasingStyle, EasingDirection, RepeatCount, Reverses, DelayTime)
-    -- The delay is the SIXTH argument. Passing it fourth sets RepeatCount and the
-    -- stage fires immediately, collapsing the three stages into one.
+    -- The delay is the sixth argument; passing it fourth sets RepeatCount
+    -- instead and the stage fires immediately, collapsing all three into one.
     local info = TweenInfo.new(time, easing, direction, 0, false, delay)
     local tween = TweenService:Create(object, info, props)
     table.insert(self._tweens, tween)
@@ -93,8 +93,8 @@ function Anim:_tween(object, time, delay, props, easing, direction)
     return tween
 end
 
--- Cancels outstanding tweens and snaps their targets, so a superseded animation
--- never leaves the window mid-fold.
+-- Cancels outstanding tweens so a superseded animation never leaves the
+-- window mid-fold.
 function Anim:_cancel()
     self._guard:cancel()
     for i = 1, #self._tweens do
@@ -131,18 +131,18 @@ function Anim:open(animate)
     local t = M.TIMING.open
     local token = self._guard:begin()
 
-    -- Start from fully collapsed: zero width, title-bar height. The title bar
-    -- expands rightward from its left edge (AnchorPoint stays (0, 0)), then the
-    -- frame unfolds downward from the bar.
+    -- Start fully collapsed: zero width, title-bar height. The title bar
+    -- expands rightward from its left edge (AnchorPoint stays (0, 0)), then
+    -- the frame unfolds downward from the bar.
     p.frame.Size = UDim2.fromOffset(0, p.barHeight)
     p.contents.Visible = true
 
     self:_tween(p.frame, t.bar.time, t.bar.delay,
         { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_OUT, Enum.EasingDirection.Out)
 
-    -- task.delay cannot be cancelled: Unload only stops future work by making
+    -- task.delay can't be cancelled: Unload only stops future work by making
     -- callbacks check isAlive() themselves, since disconnecting anything here
-    -- would not prevent a pending stage from firing after teardown.
+    -- wouldn't stop a pending stage firing after teardown.
     task.delay(t.height.delay, function()
         if not self._root:isAlive() then return end
         self._guard:run(token, function()
@@ -169,7 +169,7 @@ function Anim:close(animate)
     local token = self._guard:begin()
 
     -- The frame collapses upward into the title bar first, then the bar
-    -- retracts leftward to nothing.
+    -- retracts leftward.
     local full = p.fullSize()
     self:_tween(p.frame, t.height.time, t.height.delay,
         { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)

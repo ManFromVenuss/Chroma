@@ -16,27 +16,26 @@ end
 __modules["core/anim"] = function(require)
 -- Two-stage open/close sequencer.
 --
--- The window frame keeps AnchorPoint (0, 0) permanently, which is also its drag
--- origin, so animation and dragging never disagree about where the window is.
--- Everything shrinks Size toward that fixed corner; Position is never touched.
--- The body never moves horizontally: only the frame's Size animates, so the
--- title bar widens/narrows and the frame unfolds/collapses vertically, with no
--- separate contents slide to read as a third, disjointed motion.
+-- The window frame keeps AnchorPoint (0, 0) permanently, also its drag
+-- origin, so animation and dragging never disagree about where the window
+-- is. Everything shrinks Size toward that fixed corner; Position is never
+-- touched. The body never moves horizontally: only the frame's Size
+-- animates, so the title bar widens/narrows and the frame unfolds/collapses
+-- vertically, with no separate contents slide to read as a third motion.
 local Guard = require("util/guard")
 
--- Resolved lazily in M.new. A module-scope game:GetService() executes on require,
--- which breaks the Lua 5.4 test harness the moment any suite requires this file --
--- exactly the failure core/cursor.lua hit.
+-- Resolved lazily in M.new: a module-scope game:GetService() runs on
+-- require, which breaks the Lua 5.4 test harness the moment any suite
+-- requires this file -- the same failure core/cursor.lua hit.
 local TweenService
 
 local M = {}
 
 -- Offsets and durations in seconds. Total is 0.33s each way.
 --
--- The stages are deliberately SEPARATED by a 0.05s gap rather than overlapped:
--- each stage finishes before the next begins, so the two reads as "bar, then
--- frame" instead of one blended motion. Overlapping them was tried first and
--- felt mushy.
+-- The stages are separated by a 0.05s gap rather than overlapped: each stage
+-- finishes before the next begins, so the two read as "bar, then frame"
+-- instead of one blended motion. Overlapping felt mushy.
 M.TIMING = {
     open = {
         bar    = { delay = 0.00, time = 0.12 },
@@ -70,8 +69,8 @@ function M.new(root, parts)
     }, Anim)
 
     -- One cleanup closure covers every tween this instance ever creates.
-    -- Registering a closure per-tween (as _tween used to) would append to
-    -- root's junk list on every open/close, growing it without bound.
+    -- A closure per-tween would append to root's junk list on every
+    -- open/close, growing it without bound.
     root:keep(function()
         for i = 1, #self._tweens do
             pcall(function() self._tweens[i]:Cancel() end)
@@ -86,8 +85,9 @@ function Anim:isOpen()
     return self._open
 end
 
--- Longest end-to-end duration of a close, derived from TIMING so a retune of the
--- table cannot desynchronise callers that need to know when the window is gone.
+-- Longest end-to-end duration of a close, derived from TIMING so a retune of
+-- the table can't desynchronise callers that need to know when the window is
+-- gone.
 function M.closeDuration()
     local t = M.TIMING.close
     local total = 0
@@ -100,8 +100,8 @@ end
 
 function Anim:_tween(object, time, delay, props, easing, direction)
     -- TweenInfo.new(Time, EasingStyle, EasingDirection, RepeatCount, Reverses, DelayTime)
-    -- The delay is the SIXTH argument. Passing it fourth sets RepeatCount and the
-    -- stage fires immediately, collapsing the three stages into one.
+    -- The delay is the sixth argument; passing it fourth sets RepeatCount
+    -- instead and the stage fires immediately, collapsing all three into one.
     local info = TweenInfo.new(time, easing, direction, 0, false, delay)
     local tween = TweenService:Create(object, info, props)
     table.insert(self._tweens, tween)
@@ -109,8 +109,8 @@ function Anim:_tween(object, time, delay, props, easing, direction)
     return tween
 end
 
--- Cancels outstanding tweens and snaps their targets, so a superseded animation
--- never leaves the window mid-fold.
+-- Cancels outstanding tweens so a superseded animation never leaves the
+-- window mid-fold.
 function Anim:_cancel()
     self._guard:cancel()
     for i = 1, #self._tweens do
@@ -147,18 +147,18 @@ function Anim:open(animate)
     local t = M.TIMING.open
     local token = self._guard:begin()
 
-    -- Start from fully collapsed: zero width, title-bar height. The title bar
-    -- expands rightward from its left edge (AnchorPoint stays (0, 0)), then the
-    -- frame unfolds downward from the bar.
+    -- Start fully collapsed: zero width, title-bar height. The title bar
+    -- expands rightward from its left edge (AnchorPoint stays (0, 0)), then
+    -- the frame unfolds downward from the bar.
     p.frame.Size = UDim2.fromOffset(0, p.barHeight)
     p.contents.Visible = true
 
     self:_tween(p.frame, t.bar.time, t.bar.delay,
         { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_OUT, Enum.EasingDirection.Out)
 
-    -- task.delay cannot be cancelled: Unload only stops future work by making
+    -- task.delay can't be cancelled: Unload only stops future work by making
     -- callbacks check isAlive() themselves, since disconnecting anything here
-    -- would not prevent a pending stage from firing after teardown.
+    -- wouldn't stop a pending stage firing after teardown.
     task.delay(t.height.delay, function()
         if not self._root:isAlive() then return end
         self._guard:run(token, function()
@@ -185,7 +185,7 @@ function Anim:close(animate)
     local token = self._guard:begin()
 
     -- The frame collapses upward into the title bar first, then the bar
-    -- retracts leftward to nothing.
+    -- retracts leftward.
     local full = p.fullSize()
     self:_tween(p.frame, t.height.time, t.height.delay,
         { Size = UDim2.fromOffset(full.X, p.barHeight) }, EASE_IN, Enum.EasingDirection.In)
@@ -216,9 +216,9 @@ return M
 end
 
 __modules["core/backdrop"] = function(require)
--- Window backdrop: cover-crop maths plus (from a later task) the image and star pool.
--- computeCover is pure and unit tested; keep it free of Instance calls.
--- Lua 5.4 / Luau intersection.
+-- Window backdrop: cover-crop maths plus the image and star pool.
+-- computeCover is pure and unit tested; keep it free of Instance calls, in
+-- the Lua 5.4 / Luau intersection.
 
 local M = {}
 
@@ -232,8 +232,7 @@ function M.computeCover(windowW, windowH, aspect, shift)
     shift = shift or 0
     -- A negative shift would shrink the oversize factor below the base size
     -- without moving the offset back up enough, uncovering the bottom edge
-    -- (or the right edge on the width-bound branch). Clamp at 0: this
-    -- function is the single source of truth for the covering invariant.
+    -- (or the right edge on the width-bound branch). Clamp at 0.
     if shift < 0 then shift = 0 end
     if windowW <= 0 or windowH <= 0 then return 0, 0, 0 end
 
@@ -252,17 +251,16 @@ end
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
 local IMAGE_ASPECT = 1024 / 576
--- "forest background" -- the IMAGE (AssetTypeId 1), not the Decal that wraps it.
---
--- Use the texture id, never the decal id. Uploading an image to Roblox creates
--- two assets: a Decal (type 13) and the Image (type 1) it points at. An
--- ImageLabel needs the Image. The Creator Store page shows the decal id; the
--- "copy texture ID" button gives this one. Recoverable in-game too, via
+-- "forest background": the Image (AssetTypeId 1), not the Decal that wraps
+-- it. Uploading an image to Roblox creates two assets, a Decal (type 13) and
+-- the Image (type 1) it points at; an ImageLabel needs the Image. The
+-- Creator Store page shows the decal id; the "copy texture ID" button gives
+-- this one. Recoverable in-game too, via
 -- getobjects("rbxassetid://<decal>")[1].Texture.
 --
--- The two are moderated SEPARATELY, and the decal clears first: at the time of
--- writing the decal reported Completed while this image was still Pending. A
--- Pending image renders blank, which is what made the first upload look broken.
+-- The two are moderated separately, and the decal clears first: at the time
+-- of writing the decal reported Completed while this image was still
+-- Pending, which renders blank and made the first upload look broken.
 local DEFAULT_IMAGE = "rbxassetid://109006147881359"
 
 local Backdrop = {}
@@ -300,10 +298,10 @@ function M.new(root, holder, opts)
 
     self._maxSize = opts.MaxSize or 3
 
-    -- ONE cleanup closure covering the whole pool, registered once. A keep per
-    -- star would grow the junk list every time setCount raises the count from
-    -- the settings slider -- and the per-star keeps were always redundant, since
-    -- every dot is a descendant of the ScreenGui that Unload destroys anyway.
+    -- One cleanup closure for the whole pool, registered once. A keep per
+    -- star would grow the junk list every time setCount raises the count
+    -- from the settings slider, and would be redundant anyway, since every
+    -- dot is a descendant of the ScreenGui that Unload destroys.
     root:keep(function()
         for i = 1, #self._stars do
             self._stars[i].obj:Destroy()
@@ -364,7 +362,7 @@ function Backdrop:_reseed(star, first)
     star.tHold = rng:NextNumber(0.4, 3.0)
     star.tOut = rng:NextNumber(0.4, 1.6)
     if first then
-        -- Stagger initial phases, otherwise every star fades in together on the
+        -- Stagger initial phases, or every star fades in together on the
         -- first frame and the randomness is invisible for the first cycle.
         star.phase = rng:NextInteger(1, 4)
         star.clock = rng:NextNumber() * 2
@@ -390,10 +388,10 @@ function Backdrop:resize(w, h)
     self._image.Size = UDim2.fromOffset(math.ceil(iw), math.ceil(ih))
     self._image.Position = UDim2.new(0.5, 0, 1, math.floor(offset))
 
-    -- AbsoluteSize is (0, 0) until the holder has been rendered at least once,
-    -- so the star pool in M.new is always seeded against zeros. The first real
-    -- resize (called with the holder's actual size) is what actually places
-    -- the stars; reseed them fresh instead of trying to scale up from 0.
+    -- AbsoluteSize is (0, 0) until the holder has rendered at least once, so
+    -- the star pool in M.new is always seeded against zeros. The first real
+    -- resize, with the holder's actual size, is what places the stars;
+    -- reseed them fresh rather than scale up from 0.
     if prevW == 0 or prevH == 0 then
         for i = 1, #self._stars do
             self:_reseed(self._stars[i], true)
@@ -982,11 +980,11 @@ function Tab.new(root, page, name)
     }, Tab)
 
     -- AbsoluteSize is (0, 0) until the holder has rendered once, so columns
-    -- created in the same frame as their page would all be assigned zero width
-    -- -- the same trap that seeded every star particle at the origin in M1.
-    -- Re-laying out whenever the holder's size actually changes is self-healing:
-    -- it covers first render, window resize and page switching in one line,
-    -- without anyone having to remember to call relayout().
+    -- created in the same frame as their page would all get zero width -- the
+    -- same trap that seeded every star particle at the origin in M1.
+    -- Re-laying out whenever the holder's size actually changes covers first
+    -- render, window resize and page switching in one line, with nobody
+    -- needing to remember to call relayout().
     root:keep(holder:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
         self:_layout()
     end))
@@ -1029,9 +1027,9 @@ function M.new(root, window, opts)
     button.BackgroundTransparency = 1
     button.Text = ""
     button.AutoButtonColor = false
-    -- A pinned page sits in the rail's bottom strip rather than in its list, so
-    -- it stays visually separated from the consumer's pages however many they
-    -- add. Today that is only the settings page.
+    -- A pinned page sits in the rail's bottom strip rather than its list, so
+    -- it stays visually separated from the consumer's pages however many
+    -- there are. Today that is only the settings page.
     button.Parent = opts.Pinned and window._railBottom or window._rail
     root:keep(button)
 
@@ -1040,7 +1038,7 @@ function M.new(root, window, opts)
     -- Overhangs the button by 1px top and bottom: flush with the button, the
     -- marker reads visibly shorter than the RailActive highlight beside it.
     -- The 1px each side sits in the 2px gap the rail layout leaves between
-    -- buttons, so it cannot collide with a neighbour.
+    -- buttons, so it can't collide with a neighbour.
     marker.Size = UDim2.new(0, 2, 1, 2)
     marker.Position = UDim2.fromOffset(0, -1)
     marker.BorderSizePixel = 0
@@ -1048,9 +1046,9 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    -- Lucide icon baking is a later milestone. An rbxassetid works for free
-    -- because it is just an Image; anything else falls back to the page name's
-    -- first letter, which is the fallback the library spec already documents.
+    -- Lucide icon baking is a later milestone. An rbxassetid works already
+    -- because it is just an Image; anything else falls back to the page
+    -- name's first letter, per the library spec.
     local glyph
     if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
         glyph = Instance.new("ImageLabel")
@@ -1059,12 +1057,11 @@ function M.new(root, window, opts)
         glyph.BackgroundTransparency = 1
     else
         glyph = Instance.new("TextLabel")
-        -- A non-asset Icon string is used VERBATIM, which is how the settings
-        -- page gets its gear: U+2699, verified in-game to render in both Ubuntu
-        -- and Code (the same probe drew U+2731 as an empty box, so the check
-        -- discriminates). Falling back to the page's initial keeps every other
-        -- page working unchanged, and M5 swaps in a Lucide gear by passing an
-        -- asset id instead.
+        -- A non-asset Icon string is used verbatim, which is how the settings
+        -- page gets its gear: U+2699, verified in-game to render in both
+        -- Ubuntu and Code (U+2731 drew as an empty box in the same probe).
+        -- Falling back to the page's initial keeps every other page working
+        -- unchanged; M5 swaps in a Lucide gear via an asset id instead.
         glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
             or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
@@ -1105,8 +1102,8 @@ function M.new(root, window, opts)
     subtabRule.Parent = subtabBar
     theme:bind(subtabRule, "BackgroundColor3", "ContainerBorder")
 
-    -- The buttons get their own frame because a UIListLayout arranges EVERY
-    -- child of its parent -- including the 1px rule, which is full width and
+    -- The buttons get their own frame because a UIListLayout arranges every
+    -- child of its parent, including the 1px rule, which is full width and
     -- would consume the whole row and push the buttons off the end.
     local subtabList = Instance.new("Frame")
     subtabList.Name = "list"
@@ -1176,10 +1173,10 @@ function Page:setActive(active)
 end
 
 function Page:Tab(name)
-    -- A page is either tabbed or it is not. Columns added straight to the page
-    -- live in an implicit tab that has no button, so a real tab created
-    -- afterwards would strand them the moment the user switches -- with no way
-    -- back. Nothing sensible to do but refuse.
+    -- A page is either tabbed or it is not. Columns added straight to the
+    -- page live in an implicit tab with no button, so a real tab created
+    -- afterwards would strand them the moment the user switches, with no way
+    -- back -- refuse instead.
     if self._implicit then
         error(string.format(
             "chroma: page '%s' already has columns added directly; call :Tab() " ..
@@ -1225,9 +1222,9 @@ function Page:Tab(name)
     self._columnArea.Position = UDim2.fromOffset(PADDING, SUBTAB_HEIGHT + PADDING)
     self._columnArea.Size = UDim2.new(1, -PADDING * 2, 1, -(SUBTAB_HEIGHT + PADDING * 2))
 
-    -- Restyle every tab, not just the first: setActiveTab is what binds each
-    -- button's colour, so a tab added later would otherwise keep Roblox's
-    -- default TextButton colour until something else triggered a restyle.
+    -- Restyle every tab, not just the first: setActiveTab binds each button's
+    -- colour, so a tab added later would otherwise keep Roblox's default
+    -- TextButton colour until something triggered a restyle.
     self:setActiveTab(self._activeTab or tab)
     return tab
 end
@@ -1247,8 +1244,8 @@ function Page:setActiveTab(tab)
         end
         if active then t:_layout() end
     end
-    -- A popup opened from a row in the outgoing tab has no link to it and would
-    -- be left floating over the incoming one.
+    -- A popup opened from a row in the outgoing tab has no link to it and
+    -- would be left floating over the incoming one.
     self._window:_layoutChanged()
 end
 
@@ -1262,8 +1259,8 @@ function Page:Column(opts)
         self._implicit.holder.Visible = true
     elseif not self._implicit then
         -- Real tabs exist, so a bare :Column() would land in whichever tab is
-        -- currently active -- fine when there is one, ambiguous when there are
-        -- several, and invisible either way. Make the caller say which.
+        -- currently active: fine with one tab, ambiguous with several, and
+        -- invisible either way. Make the caller say which.
         error(string.format(
             "chroma: page '%s' has sub-tabs; add columns to a tab, not the page",
             tostring(self.name)), 2)
@@ -1692,9 +1689,8 @@ M.ICON_SIZE = 12
 
 -- opts: Name, Description, Height (optional override)
 -- fullWidth: true for widgets with no control slot (Label, Separator), which
--- span the whole row. The row must handle this itself rather than a widget
--- resizing row.label after the fact -- a widget must not resize the row it
--- was handed, that would put layout logic back inside widget modules.
+-- span the whole row. The row handles this itself; a widget resizing its own
+-- row would put layout logic back inside widget modules.
 function M.new(root, parent, opts, fullWidth)
     local theme = root.theme
     local height = opts.Height or M.HEIGHT
@@ -1711,9 +1707,8 @@ function M.new(root, parent, opts, fullWidth)
 
     -- Left region holds [label][icon] in a horizontal list, so the engine
     -- does the measuring for icon placement -- no TextBounds read, no
-    -- one-frame timing trap. Chosen over the old fixed-offset placement
-    -- after an in-game A/B comparison: trailing the label reads better than
-    -- every icon lining up in a column.
+    -- one-frame timing trap. Chosen over fixed-offset placement: trailing
+    -- the label reads better than every icon lining up in a column.
     local left = Instance.new("Frame")
     left.Name = "left"
     left.BackgroundTransparency = 1
@@ -1725,9 +1720,8 @@ function M.new(root, parent, opts, fullWidth)
         left.Size = UDim2.new(1, -M.CONTROL_WIDTH, 1, 0)
     end
     -- Above the hit button (2) so hover/tooltips on the icon still resolve
-    -- against it. This is easy to undo by accident -- if it regresses to <=2
-    -- the symptom is tooltips silently going dead, far removed from this
-    -- line, so do not "fix" it back down to match the label's old ZIndex.
+    -- against it. Regressing this to <=2 kills tooltips silently, with the
+    -- symptom far removed from this line.
     left.ZIndex = 4
     left.Parent = row
     root:keep(left)
@@ -1755,9 +1749,8 @@ function M.new(root, parent, opts, fullWidth)
 
     -- Cap the label's width so a long name truncates instead of shoving the
     -- icon into the control slot. left.AbsoluteSize is (0, 0) until the first
-    -- render, so reading it once at construction would set a bogus cap --
-    -- this is the same self-healing pattern used elsewhere in the project:
-    -- set it immediately AND recompute on AbsoluteSize changing.
+    -- render, so reading it once at construction would set a bogus cap; set
+    -- it immediately and recompute on AbsoluteSize changing.
     local cap = Instance.new("UISizeConstraint")
     cap.Parent = label
     local function updateCap()
@@ -1781,9 +1774,9 @@ function M.new(root, parent, opts, fullWidth)
         icon.Size = UDim2.fromOffset(M.ICON_SIZE, M.ICON_SIZE)
         icon.BackgroundTransparency = 1
         icon.AutoButtonColor = false
-        -- Code rather than Ubuntu: it is a monospace face designed for small
-        -- sizes and hints far better at 11px, where Ubuntu's '?' goes soft.
-        -- Only the glyph differs; row text stays Ubuntu.
+        -- Code rather than Ubuntu: a monospace face designed for small sizes,
+        -- hinting far better at 11px, where Ubuntu's '?' goes soft. Only the
+        -- glyph differs; row text stays Ubuntu.
         icon.Font = Enum.Font.Code
         icon.TextSize = 11
         icon.Text = "?"
@@ -1799,9 +1792,9 @@ function M.new(root, parent, opts, fullWidth)
         -- Tint to the accent on hover, so the icon reads as interactive before
         -- the tooltip appears. Rebind rather than write directly: theme:apply()
         -- runs every frame off the window's heartbeat while the accent
-        -- animates, so a binding keeps cycling with it for free instead of
-        -- freezing at whatever hue was current on MouseEnter. bind() paints
-        -- immediately, so there is no flash between unbinding and rebinding.
+        -- animates, so a binding keeps cycling with it instead of freezing at
+        -- whatever hue was current on MouseEnter. bind() paints immediately,
+        -- so there is no flash between unbinding and rebinding.
         root:keep(icon.MouseEnter:Connect(function()
             theme:unbind(icon)
             theme:unbind(iconStroke)
@@ -1828,20 +1821,18 @@ function M.new(root, parent, opts, fullWidth)
         control.BackgroundTransparency = 1
         control.BorderSizePixel = 0
         -- Above the hit button (2) so widgets inside it (a slider track, for
-        -- instance) receive their own input instead of the row swallowing it.
+        -- instance) get their own input instead of the row swallowing it.
         control.ZIndex = 3
         control.Parent = row
     end
 
     -- A transparent, full-row click target. Widgets that want "click anywhere
     -- on the row" ask for it via onActivated() below rather than parenting
-    -- their own button into row.frame -- every widget doing that would defeat
-    -- the boundary the control slot exists to enforce. It sits ABOVE the
-    -- label but BELOW the help icon and control slot: ZIndex 2, deliberately
-    -- between icon (4) and control (3) on one side and the label's default of
-    -- 1 on the other. Getting this ordering wrong is exactly how the row used
-    -- to swallow hover input meant for the (?) icon and silently kill
-    -- tooltips -- do not "fix" this back to matching or exceeding 3/4.
+    -- their own button into row.frame, which would defeat the boundary the
+    -- control slot exists to enforce. ZIndex 2 sits above the label's default
+    -- of 1 but below the icon (4) and control (3): getting this ordering
+    -- wrong is how the row used to swallow hover input meant for the (?)
+    -- icon and silently kill tooltips.
     local hit = Instance.new("TextButton")
     hit.Name = "hit"
     hit.Size = UDim2.fromScale(1, 1)
@@ -1860,10 +1851,8 @@ function M.new(root, parent, opts, fullWidth)
         row.Size = UDim2.new(1, 0, 0, px)
     end
 
-    -- Widgets that want "click anywhere on the row" ask for it here rather than
-    -- parenting a button into row.frame themselves. The row owns the layering:
-    -- the hit button deliberately sits BELOW the help icon and the control
-    -- slot, or it would swallow their input and silently kill tooltips.
+    -- Widgets ask for click-anywhere-on-row here rather than parenting their
+    -- own button, per the ZIndex ordering explained above.
     function api.onActivated(fn)
         root:keep(hit.Activated:Connect(fn))
     end
@@ -2245,10 +2234,10 @@ return Theme
 end
 
 __modules["core/tooltip"] = function(require)
--- Tooltip: the pure placement maths, plus (from a later task) the single reused
--- frame in the tooltip layer.
+-- Tooltip: the pure placement maths, plus the single reused frame in the
+-- tooltip layer.
 --
--- place() is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- place() is unit tested, so it stays in the Lua 5.4 / Luau intersection --
 -- no compound assignment, no bitwise ops, no goto.
 
 local M = {}
@@ -2259,10 +2248,9 @@ M.Y_NUDGE = -3  -- lifts the tooltip so its text sits level with the icon, not b
 
 -- Anchored placement beside `anchor`, flipping left and clamping up as needed.
 --
--- Everything here is in one coordinate space -- the anchor's -- which is the
--- quiet advantage of anchoring over following the cursor: GetMouseLocation
--- never enters the calculation, so the GUI-inset mismatch that caused two M1
--- bugs cannot happen.
+-- All in the anchor's coordinate space, which is the advantage of anchoring
+-- over following the cursor: GetMouseLocation never enters into it, so the
+-- GUI-inset mismatch that caused two M1 bugs can't happen.
 function M.place(anchor, tip, viewport, gap, margin)
     gap = gap or M.GAP
     margin = margin or M.MARGIN
@@ -2284,8 +2272,8 @@ end
 
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
--- Resolved lazily: a module-scope game:GetService() executes on require, and
--- the Lua 5.4 harness requires this file to reach place().
+-- Resolved lazily: a module-scope game:GetService() runs on require, and the
+-- Lua 5.4 harness requires this file to reach place().
 local UserInputService
 local RunService
 
@@ -2295,8 +2283,8 @@ Tooltip.__index = Tooltip
 local DELAY = 0.15
 local MAX_WIDTH = 220
 
--- One manager per window, owning ONE reused frame -- the same pooling reasoning
--- as the star particles. Rows attach to it; they never create tooltips.
+-- One manager per window, owning one reused frame -- the same pooling as the
+-- star particles. Rows attach to it; they never create tooltips.
 function M.new(root)
     UserInputService = UserInputService or game:GetService("UserInputService")
     RunService = RunService or game:GetService("RunService")
@@ -2310,10 +2298,10 @@ function M.new(root)
     frame.BorderSizePixel = 0
     frame.Visible = false
     frame.ZIndex = 10
-    -- Active stays false and no button is used: the tooltip must NEVER
-    -- intercept input. If it did, a tooltip placed over its own icon would
-    -- steal the pointer, fire MouseLeave on the icon, hide itself, and
-    -- immediately re-trigger -- a hide/show flicker loop.
+    -- Active stays false and no button is used: the tooltip must never
+    -- intercept input, or one placed over its own icon would steal the
+    -- pointer, fire MouseLeave on the icon, hide itself, and immediately
+    -- re-trigger -- a hide/show flicker loop.
     frame.Parent = root.tooltipLayer
     root:keep(frame)
     theme:bind(frame, "BackgroundColor3", "Window")
@@ -2339,9 +2327,9 @@ function M.new(root)
     label.TextSize = 11
     label.TextXAlignment = Enum.TextXAlignment.Left
     label.TextYAlignment = Enum.TextYAlignment.Top
-    -- Wrapping is correct HERE and nowhere else in Chroma: this is a standalone
-    -- floating frame, not a child of an auto-sizing container, so a re-flow
-    -- cannot under-size anything around it.
+    -- Wrapping is correct here and nowhere else in Chroma: this is a
+    -- standalone floating frame, not a child of an auto-sizing container, so
+    -- a re-flow can't under-size anything around it.
     label.TextWrapped = true
     label.ZIndex = 11
     label.Parent = frame
@@ -2357,8 +2345,8 @@ function M.new(root)
         _owner = nil,
     }, Tooltip)
 
-    -- ONE cleanup closure for the watch connection, registered once. Registering
-    -- per show would grow the junk list on every hover.
+    -- One cleanup closure for the watch connection, registered once. Per-show
+    -- registration would grow the junk list on every hover.
     root:keep(function()
         if self._watch then
             self._watch:Disconnect()
@@ -2402,9 +2390,9 @@ function Tooltip:_show(icon, text)
     self._frame.Position = UDim2.fromOffset(
         self._root:toLayerSpace(x, y, self._frame.Parent))
 
-    -- MouseLeave is unreliable when the pointer moves fast, and a STUCK tooltip
-    -- is the only genuinely bad failure here. So while one is visible -- and
-    -- only then -- confirm each frame that the pointer is still over the icon.
+    -- MouseLeave is unreliable when the pointer moves fast, and a stuck
+    -- tooltip is the only genuinely bad failure here, so while one is
+    -- visible, confirm each frame that the pointer is still over the icon.
     self._watch = RunService.RenderStepped:Connect(function()
         if not self._owner or not self._owner.Parent then
             self:_hide()
@@ -2422,10 +2410,10 @@ end
 -- Called by the row builder for every (?) icon that has a description.
 --
 -- The pending timer is tagged with the icon it belongs to (_pendingIcon), and
--- MouseLeave only tears it down if it's still that icon's timer. This must
--- not assume any ordering between MouseEnter/MouseLeave firing on different
--- GuiObjects -- Roblox gives no such guarantee, and a fast sweep across a
--- column of icons can deliver icon B's Enter before icon A's Leave.
+-- MouseLeave only tears it down if it's still that icon's timer: Roblox gives
+-- no ordering guarantee between MouseEnter/MouseLeave on different
+-- GuiObjects, and a fast sweep across a column of icons can deliver icon B's
+-- Enter before icon A's Leave.
 function Tooltip:attach(icon, text)
     self._root:keep(icon.MouseEnter:Connect(function()
         if self._timer then task.cancel(self._timer) end
@@ -2447,7 +2435,7 @@ return M
 end
 
 __modules["core/window"] = function(require)
--- The window shell: separate translucent title bar, icon rail, body holding the
+-- The window shell: translucent title bar, icon rail, body holding the
 -- backdrop, drag, resize, and the open/close animation.
 --
 -- Layout, from the spec: title bar 24px, 4px gap to the body, rail 28px,
@@ -2460,7 +2448,7 @@ local Popup = require("core/popup")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
--- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
+-- Resolved lazily in M.new: a module-scope game:GetService() runs on require.
 local UserInputService
 
 local M = {}
@@ -2489,14 +2477,14 @@ function M.new(root, opts)
         _layoutListeners = {},
     }, Window)
 
-    -- Frame keeps AnchorPoint (0,0) forever: it is the drag origin AND the
-    -- animation origin, so the two can never disagree.
+    -- Frame keeps AnchorPoint (0,0) forever: it is both the drag origin and
+    -- the animation origin, so the two can't disagree.
     local viewport = workspace.CurrentCamera.ViewportSize
     -- ViewportSize is screen space; Position is parent (windowLayer) space.
     -- The layer's ScreenGui sets IgnoreGuiInset = true, so the layer's origin
     -- sits `inset` above the screen origin, and layer.AbsolutePosition.Y is
-    -- that inset as a negative offset (e.g. -58). Subtracting it here cancels
-    -- the offset instead of hardcoding a GUI inset that isn't constant across
+    -- that inset as a negative offset (e.g. -58). Subtracting it cancels the
+    -- offset instead of hardcoding a GUI inset that isn't constant across
     -- setups (topbar height varies with platform/device).
     local frame = Instance.new("Frame")
     frame.Name = "window"
@@ -2511,15 +2499,14 @@ function M.new(root, opts)
     frame.Parent = root.windowLayer
     self._frame = root:keep(frame)
 
-    -- Deliberately no stroke on `frame`. Its bounds enclose the title bar as
-    -- well as the body, so a stroke here would outline the bar too -- and the
-    -- bar is meant to read as a detached strip defined only by its two gradient
-    -- hairlines. The window's outline is the body's own stroke, added below.
+    -- No stroke on `frame`: its bounds enclose the title bar as well as the
+    -- body, so a stroke here would outline the bar too, and the bar is meant
+    -- to read as a detached strip defined only by its two gradient hairlines.
+    -- The window's outline is the body's own stroke, added below.
     --
-    -- A soft glow was tried here and removed: Roblox has no real bloom, so it
-    -- was stacked UIStrokes, which band into visibly separate rings rather than
-    -- a falloff. A genuine glow would need a 9-slice radial sprite uploaded as
-    -- an image asset.
+    -- A soft glow was tried and removed: Roblox has no real bloom, so it was
+    -- stacked UIStrokes, which band into separate rings rather than a falloff.
+    -- A genuine glow would need a 9-slice radial sprite as an image asset.
 
     --== title bar: its own strip, translucent, detached by a gap ==--
     local bar = Instance.new("Frame")
@@ -2531,15 +2518,15 @@ function M.new(root, opts)
     theme:bind(bar, "BackgroundColor3", "TitleBar", "BackgroundTransparency")
     self._bar = bar
 
-    -- Deliberately no UIStroke on the bar. The two gradient hairlines below
-    -- already define its top and bottom edges, and a stroke drew a second,
-    -- fainter accent line immediately beneath the bottom hairline. The bar is a
-    -- floating strip, so leaving its left and right edges unbordered reads fine
-    -- -- the body keeps its own stroke, and that is what outlines the window.
+    -- No UIStroke on the bar. The two gradient hairlines below already define
+    -- its top and bottom edges; a stroke drew a second, fainter accent line
+    -- just beneath the bottom hairline. The bar is a floating strip, so its
+    -- unbordered left and right edges read fine -- the body's own stroke is
+    -- what outlines the window.
 
-    -- White base colour on purpose: a UIGradient MULTIPLIES the element's
-    -- colour, and a Frame defaults to grey (163,162,165), which would render
-    -- the gradient at about 64% intensity.
+    -- White base colour: a UIGradient multiplies the element's colour, and a
+    -- Frame defaults to grey (163,162,165), which would render the gradient
+    -- at about 64% intensity.
     local hair = Instance.new("Frame")
     hair.Name = "hairline"
     hair.Size = UDim2.new(1, 0, 0, 2)
@@ -2552,10 +2539,9 @@ function M.new(root, opts)
     hairGradient.Parent = hair
     self._hairGradient = hairGradient
 
-    -- Mirrored along the bottom edge so the bar reads symmetrically: without
-    -- this the 1px stroke plus the top hairline made the top read as a bright
-    -- ~3px band against a thin 1px bottom, which looked unbalanced on a
-    -- detached floating strip.
+    -- Mirrored along the bottom edge for symmetry: without it, the 1px stroke
+    -- plus the top hairline made the top read as a bright ~3px band against a
+    -- thin 1px bottom, unbalanced on a detached floating strip.
     local hairBottom = Instance.new("Frame")
     hairBottom.Name = "hairlineBottom"
     hairBottom.Size = UDim2.new(1, 0, 0, 2)
@@ -2596,15 +2582,15 @@ function M.new(root, opts)
 
     local body = Instance.new("Frame")
     body.Name = "body"
-    -- Inset by 1px on every side. A UIStroke draws OUTWARD from its element's
+    -- Inset by 1px on every side. A UIStroke draws outward from its element's
     -- bounds, and `contents` clips its descendants, so a body filling contents
-    -- exactly has its stroke drawn straight into the clipped region and cut
-    -- away -- invisible. The 1px margin is exactly the thickness of the stroke,
-    -- so it reads as an outline on the window edge with no visible gap.
+    -- exactly has its stroke drawn into the clipped region and cut away. The
+    -- 1px margin is exactly the stroke's thickness, so it reads as an outline
+    -- on the window edge with no visible gap.
     body.Size = UDim2.new(1, -2, 1, -2)
     body.Position = UDim2.fromOffset(1, 1)
-    -- Opaque: the backdrop fills it. Translucency here would show the game world
-    -- behind the forest, which reads as a bug.
+    -- Opaque: the backdrop fills it. Translucency here would show the game
+    -- world behind the forest.
     body.BackgroundTransparency = 0
     body.BorderSizePixel = 0
     body.ClipsDescendants = true
@@ -2612,11 +2598,11 @@ function M.new(root, opts)
     theme:bind(body, "BackgroundColor3", "Body")
     self._body = body
 
-    -- The outline carries the SAME hue-shifted gradient as the title bar's
+    -- The outline carries the same hue-shifted gradient as the title bar's
     -- hairlines, so the bar and the window read as one piece rather than two
     -- accent colours side by side. A UIGradient parented to a UIStroke tints
     -- the stroke; the stroke's own Color must stay white or it multiplies the
-    -- gradient down, so this one is deliberately not theme-bound.
+    -- gradient down, so this one is not theme-bound.
     local bodyStroke = Instance.new("UIStroke")
     bodyStroke.Thickness = 1
     bodyStroke.Color = Color3.new(1, 1, 1)
@@ -2648,13 +2634,13 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
-    -- A bottom strip for pinned entries. It is a sibling of the rail, NOT a
-    -- child of it, and that is the whole point: a UIListLayout arranges every
-    -- child of its parent, so parenting this to the rail made the list lay it
-    -- out as an ordinary item and the gear appeared at the TOP. Anchored over
-    -- the rail's own footprint instead, it is outside that layout's reach.
+    -- A bottom strip for pinned entries, a sibling of the rail rather than a
+    -- child of it: a UIListLayout arranges every child of its parent, so
+    -- parenting this to the rail made the list lay it out as an ordinary item
+    -- and the gear appeared at the top. Anchored over the rail's own
+    -- footprint instead, it sits outside that layout's reach.
     --
-    -- That footprint is shared implicitly: this lines up with the rail only
+    -- The footprint is shared implicitly: this lines up with the rail only
     -- because the rail sits at (0, 0) and spans the body's full height. Give
     -- the rail an offset and this drifts silently.
     local railBottom = Instance.new("Frame")
@@ -2676,10 +2662,10 @@ function M.new(root, opts)
     railBottomLayout.Padding = UDim.new(0, 5)
     railBottomLayout.Parent = railBottom
 
-    -- A UIListLayout arranges EVERY child, so the rule is part of the list
+    -- A UIListLayout arranges every child, so the rule is part of the list
     -- rather than positioned over it -- the same trap that made the sub-tab
     -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
-    -- buttons, which is what "separated from the pages" means visually.
+    -- buttons, separating it visually from the pages.
     local railRule = Instance.new("Frame")
     railRule.Name = "rule"
     railRule.Size = UDim2.new(1, -12, 0, 1)
@@ -2702,8 +2688,9 @@ function M.new(root, opts)
     self._pages = {}
     self._activePage = nil
 
-    -- The tooltip and popup managers are owned by the window and reached through
-    -- root, so row.lua and every widget can use them without being handed one.
+    -- The tooltip and popup managers are owned by the window and reached
+    -- through root, so row.lua and every widget can use them without being
+    -- handed one.
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
@@ -2713,19 +2700,16 @@ function M.new(root, opts)
         frame.Position = UDim2.fromOffset(start.X + delta.X, start.Y + delta.Y)
         self:_layoutChanged()
     end, function()
-        -- AbsolutePosition is screen space; Position is parent space. With
-        -- IgnoreGuiInset = true the window layer sits `inset` above the
-        -- screen origin, so those two spaces differ by the GUI inset. Reading
-        -- AbsolutePosition here but writing Position above teleported the
-        -- window by the inset on every mouse-down. Read from the same space
-        -- we write to instead.
+        -- Same space mismatch as above: reading AbsolutePosition here but
+        -- writing Position teleported the window by the GUI inset on every
+        -- mouse-down. Read from the same space that gets written to.
         return Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
     end)
 
-    -- The grip is now an L outline hugging the corner rather than a filled
-    -- square: the TextButton stays exactly as it was (same size/position, same
-    -- drag wiring below) as the hit area, but becomes fully transparent, and
-    -- two thin accent bars drawn on top of it form the visible corner.
+    -- The grip is an L outline hugging the corner rather than a filled square:
+    -- the TextButton keeps its size, position and drag wiring as the hit area
+    -- but is fully transparent, and two thin accent bars drawn on top of it
+    -- form the visible corner.
     local grip = Instance.new("TextButton")
     grip.Name = "grip"
     grip.Size = UDim2.fromOffset(12, 12)
@@ -2758,7 +2742,7 @@ function M.new(root, opts)
     theme:bind(gripRight, "BackgroundColor3", "Accent")
 
     self:_makeDragHandle(grip, function(delta, start)
-        -- Read the viewport at drag time, not at construction: the player may
+        -- Read the viewport at drag time, not construction: the player may
         -- resize or fullscreen the Roblox window mid-session.
         local liveViewport = workspace.CurrentCamera.ViewportSize
         local maxW = math.max(self._minSize.X, liveViewport.X)
@@ -2786,14 +2770,14 @@ function M.new(root, opts)
     end)
 
     --== toggle key ==--
-    -- gameProcessedEvent is IGNORED by default: games sink keys, and O is sunk
-    -- in one of the target games. RespectGameProcessed opts into politeness.
+    -- gameProcessedEvent is ignored by default: games sink keys, and O is
+    -- sunk in one of the target games. RespectGameProcessed opts into that.
     self._toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
     local respect = opts.RespectGameProcessed == true
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if respect and gameProcessed then return end
-        -- A Keybind capture owns the keyboard while it is open, or binding the
-        -- toggle key would bind it AND close the menu in one press.
+        -- A Keybind capture owns the keyboard while it is open, or binding
+        -- the toggle key would bind it and close the menu in one press.
         if root.capturing then return end
         local key = self._toggleKey
         if key == nil then return end
@@ -2805,8 +2789,7 @@ function M.new(root, opts)
     end))
 
     -- Only one root:onFrame handler is allowed (Root:onFrame asserts on a
-    -- second registration), so all window per-frame work lives in this one
-    -- callback.
+    -- second registration), so all per-frame window work lives here.
     root:onFrame(function(dt)
         self._backdrop:step(dt)
         local hairColor = ColorSequence.new(
@@ -2816,9 +2799,9 @@ function M.new(root, opts)
         self._bodyStrokeGradient.Color = hairColor
     end)
 
-    -- Built before any consumer page exists, which is fine because a pinned page
+    -- Built before any consumer page exists; fine, because a pinned page
     -- never auto-activates. Opting out is one flag rather than a separate
-    -- constructor, since a consumer who does not want it is the rare case.
+    -- constructor, since a consumer who doesn't want it is the rare case.
     if opts.Settings ~= false then
         self._settingsPage = Settings.build(root, self)
     end
@@ -2831,8 +2814,7 @@ function M.new(root, opts)
 end
 
 -- Anything that reflows or replaces the view. The popup manager is the only
--- subscriber today; keeping it a list means the next one does not have to
--- rewrite this.
+-- subscriber today; a list means the next one doesn't have to rewrite this.
 function Window:onLayoutChanged(fn)
     table.insert(self._layoutListeners, fn)
 end
@@ -2889,7 +2871,7 @@ function Window:Page(opts)
     table.insert(self._pages, page)
     -- A pinned page must never become the default view. The settings page is
     -- built before any consumer page exists, so plain "first page wins" would
-    -- open the menu on Settings every single time.
+    -- open the menu on Settings every time.
     if not self._activePage and not page.pinned then
         self:setActivePage(page)
     else
@@ -2922,8 +2904,8 @@ function Window:close()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
     -- Stars keep no state worth preserving, so pausing while hidden is free.
-    -- +0.01 is a deliberate one-frame margin so the pause lands just after the
-    -- final tween completes rather than racing it.
+    -- +0.01 is a one-frame margin so the pause lands just after the final
+    -- tween completes rather than racing it.
     task.delay(Anim.closeDuration() + 0.01, function()
         if not self._root:isAlive() then return end
         if not self._anim:isOpen() then
@@ -2949,7 +2931,7 @@ function Window:setAccent(accent)
     self._theme:apply()
 end
 
--- Accepts a KeyCode or a bindable UserInputType, or nil for no toggle at all.
+-- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)
     self._toggleKey = key

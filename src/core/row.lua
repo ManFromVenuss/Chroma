@@ -12,9 +12,8 @@ M.ICON_SIZE = 12
 
 -- opts: Name, Description, Height (optional override)
 -- fullWidth: true for widgets with no control slot (Label, Separator), which
--- span the whole row. The row must handle this itself rather than a widget
--- resizing row.label after the fact -- a widget must not resize the row it
--- was handed, that would put layout logic back inside widget modules.
+-- span the whole row. The row handles this itself; a widget resizing its own
+-- row would put layout logic back inside widget modules.
 function M.new(root, parent, opts, fullWidth)
     local theme = root.theme
     local height = opts.Height or M.HEIGHT
@@ -31,9 +30,8 @@ function M.new(root, parent, opts, fullWidth)
 
     -- Left region holds [label][icon] in a horizontal list, so the engine
     -- does the measuring for icon placement -- no TextBounds read, no
-    -- one-frame timing trap. Chosen over the old fixed-offset placement
-    -- after an in-game A/B comparison: trailing the label reads better than
-    -- every icon lining up in a column.
+    -- one-frame timing trap. Chosen over fixed-offset placement: trailing
+    -- the label reads better than every icon lining up in a column.
     local left = Instance.new("Frame")
     left.Name = "left"
     left.BackgroundTransparency = 1
@@ -45,9 +43,8 @@ function M.new(root, parent, opts, fullWidth)
         left.Size = UDim2.new(1, -M.CONTROL_WIDTH, 1, 0)
     end
     -- Above the hit button (2) so hover/tooltips on the icon still resolve
-    -- against it. This is easy to undo by accident -- if it regresses to <=2
-    -- the symptom is tooltips silently going dead, far removed from this
-    -- line, so do not "fix" it back down to match the label's old ZIndex.
+    -- against it. Regressing this to <=2 kills tooltips silently, with the
+    -- symptom far removed from this line.
     left.ZIndex = 4
     left.Parent = row
     root:keep(left)
@@ -75,9 +72,8 @@ function M.new(root, parent, opts, fullWidth)
 
     -- Cap the label's width so a long name truncates instead of shoving the
     -- icon into the control slot. left.AbsoluteSize is (0, 0) until the first
-    -- render, so reading it once at construction would set a bogus cap --
-    -- this is the same self-healing pattern used elsewhere in the project:
-    -- set it immediately AND recompute on AbsoluteSize changing.
+    -- render, so reading it once at construction would set a bogus cap; set
+    -- it immediately and recompute on AbsoluteSize changing.
     local cap = Instance.new("UISizeConstraint")
     cap.Parent = label
     local function updateCap()
@@ -101,9 +97,9 @@ function M.new(root, parent, opts, fullWidth)
         icon.Size = UDim2.fromOffset(M.ICON_SIZE, M.ICON_SIZE)
         icon.BackgroundTransparency = 1
         icon.AutoButtonColor = false
-        -- Code rather than Ubuntu: it is a monospace face designed for small
-        -- sizes and hints far better at 11px, where Ubuntu's '?' goes soft.
-        -- Only the glyph differs; row text stays Ubuntu.
+        -- Code rather than Ubuntu: a monospace face designed for small sizes,
+        -- hinting far better at 11px, where Ubuntu's '?' goes soft. Only the
+        -- glyph differs; row text stays Ubuntu.
         icon.Font = Enum.Font.Code
         icon.TextSize = 11
         icon.Text = "?"
@@ -119,9 +115,9 @@ function M.new(root, parent, opts, fullWidth)
         -- Tint to the accent on hover, so the icon reads as interactive before
         -- the tooltip appears. Rebind rather than write directly: theme:apply()
         -- runs every frame off the window's heartbeat while the accent
-        -- animates, so a binding keeps cycling with it for free instead of
-        -- freezing at whatever hue was current on MouseEnter. bind() paints
-        -- immediately, so there is no flash between unbinding and rebinding.
+        -- animates, so a binding keeps cycling with it instead of freezing at
+        -- whatever hue was current on MouseEnter. bind() paints immediately,
+        -- so there is no flash between unbinding and rebinding.
         root:keep(icon.MouseEnter:Connect(function()
             theme:unbind(icon)
             theme:unbind(iconStroke)
@@ -148,20 +144,18 @@ function M.new(root, parent, opts, fullWidth)
         control.BackgroundTransparency = 1
         control.BorderSizePixel = 0
         -- Above the hit button (2) so widgets inside it (a slider track, for
-        -- instance) receive their own input instead of the row swallowing it.
+        -- instance) get their own input instead of the row swallowing it.
         control.ZIndex = 3
         control.Parent = row
     end
 
     -- A transparent, full-row click target. Widgets that want "click anywhere
     -- on the row" ask for it via onActivated() below rather than parenting
-    -- their own button into row.frame -- every widget doing that would defeat
-    -- the boundary the control slot exists to enforce. It sits ABOVE the
-    -- label but BELOW the help icon and control slot: ZIndex 2, deliberately
-    -- between icon (4) and control (3) on one side and the label's default of
-    -- 1 on the other. Getting this ordering wrong is exactly how the row used
-    -- to swallow hover input meant for the (?) icon and silently kill
-    -- tooltips -- do not "fix" this back to matching or exceeding 3/4.
+    -- their own button into row.frame, which would defeat the boundary the
+    -- control slot exists to enforce. ZIndex 2 sits above the label's default
+    -- of 1 but below the icon (4) and control (3): getting this ordering
+    -- wrong is how the row used to swallow hover input meant for the (?)
+    -- icon and silently kill tooltips.
     local hit = Instance.new("TextButton")
     hit.Name = "hit"
     hit.Size = UDim2.fromScale(1, 1)
@@ -180,10 +174,8 @@ function M.new(root, parent, opts, fullWidth)
         row.Size = UDim2.new(1, 0, 0, px)
     end
 
-    -- Widgets that want "click anywhere on the row" ask for it here rather than
-    -- parenting a button into row.frame themselves. The row owns the layering:
-    -- the hit button deliberately sits BELOW the help icon and the control
-    -- slot, or it would swallow their input and silently kill tooltips.
+    -- Widgets ask for click-anywhere-on-row here rather than parenting their
+    -- own button, per the ZIndex ordering explained above.
     function api.onActivated(fn)
         root:keep(hit.Activated:Connect(fn))
     end
