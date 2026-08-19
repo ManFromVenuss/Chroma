@@ -48,7 +48,7 @@ function M.new(root, row, opts)
         box.SelectionStart = 1
     end
 
-    -- Listen on the BOX, not only the field around it. A TextBox takes focus
+    -- Listen on the box, not only the field around it. A TextBox takes focus
     -- natively when clicked even while TextEditable is false, and that click
     -- never reaches the parent button -- so the field's Activated never fired,
     -- TextEditable stayed false, and the box sat focused and selectable while
@@ -85,7 +85,7 @@ function M.new(root, row, opts)
 
         local text = box.Text
         if self._numeric and tonumber(text) == nil then
-            -- Rejected on COMMIT rather than by filtering keystrokes: filtering
+            -- Rejected on commit rather than by filtering keystrokes: filtering
             -- fights paste and IME, and a half-typed "-" or "1e" is legitimate
             -- mid-edit. Unparseable input is user error at runtime, so it
             -- reverts silently rather than erroring.
@@ -99,8 +99,7 @@ function M.new(root, row, opts)
     return self
 end
 
--- A number when Numeric is set -- that is what the flag is for -- and the raw
--- string otherwise.
+-- A number when Numeric is set, the raw string otherwise.
 function TextBox:Get()
     if self._numeric then return tonumber(self._value) end
     return self._value

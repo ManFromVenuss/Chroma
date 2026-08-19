@@ -1,6 +1,6 @@
 -- A single line of static text spanning the whole row.
 --
--- Deliberately NOT wrappable. A wrapped label under-sizes its parent because
+-- Deliberately not wrappable. A wrapped label under-sizes its parent because
 -- height only re-syncs when TextBounds fires, and inside an auto-sizing
 -- container that clips the entire section. Two lines means two Labels.
 

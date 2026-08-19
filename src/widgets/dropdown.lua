@@ -22,7 +22,7 @@ function M.new(root, row, opts)
     local theme = root.theme
 
     -- U+25BC. If this ever renders as a box in-game, fall back to "v" in
-    -- Enum.Font.Code -- M5 replaces it with a Lucide chevron either way.
+    -- Enum.Font.Code.
     local field = Field.new(root, row.control, { Glyph = "\u{25BC}" })
 
     local popup = Instance.new("Frame")
@@ -46,7 +46,7 @@ function M.new(root, row, opts)
     list.BackgroundTransparency = 1
     list.BorderSizePixel = 0
     list.CanvasSize = UDim2.new()
-    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- The property is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
     -- There is no Enum.AutomaticCanvasSize.
     list.AutomaticCanvasSize = Enum.AutomaticSize.Y
     list.ScrollBarThickness = 2

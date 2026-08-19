@@ -3211,8 +3211,8 @@ return M
 end
 
 __modules["widgets/colorpicker"] = function(require)
--- Colorpicker: the pure text parsing, plus (from the next task) the swatch, the
--- HSV square, the hue and alpha strips and the text field.
+-- Colorpicker: the pure text parsing, plus the swatch, the HSV square, the hue
+-- and alpha strips and the text field.
 --
 -- parseColor and toHex are unit tested, so keep them in the Lua 5.4 / Luau
 -- intersection: no compound assignment, no bitwise ops, no goto. That also
@@ -3229,7 +3229,7 @@ local function clampByte(n)
     return n
 end
 
--- Returns r, g, b, a or nil. Unparseable input is USER error at runtime, not a
+-- Returns r, g, b, a or nil. Unparseable input is user error at runtime, not a
 -- programming mistake, so the caller reverts silently rather than erroring --
 -- exactly as the slider's typed value does.
 function M.parseColor(text)
@@ -3454,7 +3454,7 @@ function M.new(root, row, opts)
 
     local hueY = PAD + SQUARE_H + STRIP_GAP
     local hueStrip, hueMarker = makeStrip("hue", hueY)
-    -- A UIGradient MULTIPLIES its element's colour, which is why the strip's own
+    -- A UIGradient multiplies its element's colour, which is why the strip's own
     -- BackgroundColor3 is white above.
     local hueGradient = Instance.new("UIGradient")
     hueGradient.Color = ColorSequence.new({
@@ -3659,7 +3659,7 @@ function Colorpicker:_paint()
 
     if self._hasAlpha then
         self._alphaMarker.Position = UDim2.fromScale(self._a, 0.5)
-        -- The wash fades from transparent to the CURRENT colour, so the strip
+        -- The wash fades from transparent to the current colour, so the strip
         -- always previews the actual alpha range for what is selected.
         self._alphaGradient.Color = ColorSequence.new(colour, colour)
     end
@@ -3763,7 +3763,7 @@ function M.new(root, row, opts)
     local theme = root.theme
 
     -- U+25BC. If this ever renders as a box in-game, fall back to "v" in
-    -- Enum.Font.Code -- M5 replaces it with a Lucide chevron either way.
+    -- Enum.Font.Code.
     local field = Field.new(root, row.control, { Glyph = "\u{25BC}" })
 
     local popup = Instance.new("Frame")
@@ -3787,7 +3787,7 @@ function M.new(root, row, opts)
     list.BackgroundTransparency = 1
     list.BorderSizePixel = 0
     list.CanvasSize = UDim2.new()
-    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- The property is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
     -- There is no Enum.AutomaticCanvasSize.
     list.AutomaticCanvasSize = Enum.AutomaticSize.Y
     list.ScrollBarThickness = 2
@@ -4100,7 +4100,7 @@ end
 __modules["widgets/init"] = function(require)
 -- The single registration point for widgets. container.lua generates its
 -- methods from this map, so it never learns what any individual widget is --
--- adding a widget in a later milestone is one line here plus one new file.
+-- adding a widget is one line here plus one new file.
 
 return {
     Label = require("widgets/label"),
@@ -4117,18 +4117,18 @@ return {
 end
 
 __modules["widgets/keybind"] = function(require)
--- Keybind: the pure display-name mapping, plus (from the next task) capture,
--- the mode menu, and IsHeld.
+-- Keybind: the pure display-name mapping, plus capture, the mode menu, and
+-- IsHeld.
 --
 -- formatKey is unit tested, so keep it in the Lua 5.4 / Luau intersection:
--- no compound assignment, no bitwise ops, no goto. That also means NO Enum
+-- no compound assignment, no bitwise ops, no goto. That also means no Enum
 -- values at module scope -- the harness has no `Enum` global.
 
 local M = {}
 
 -- The only bindable mouse inputs there are. Roblox delivers no event at all for
 -- side buttons 4 and 5, and Enum.KeyCode.MouseBackButton is a dead legacy entry
--- InputBegan never fires. Proven in-game with a logger; see the M3 spec.
+-- InputBegan never fires. Proven in-game with a logger.
 local MOUSE = {
     MouseButton1 = "MOUSE1",
     MouseButton2 = "MOUSE2",
@@ -4259,11 +4259,11 @@ function M.new(root, row, opts)
         end))
     end
 
-    -- Activated fires on button RELEASE, and that matters: starting capture from
+    -- Activated fires on button release, and that matters: starting capture from
     -- InputBegan would let the very same MouseButton1 press reach the capture
     -- handler below and instantly bind MOUSE1.
-    -- Binding a mouse button ON the field consumes the press DOWN in _capture,
-    -- but its RELEASE still arrives as a click event on the field -- Activated
+    -- Binding a mouse button on the field consumes the press down in _capture,
+    -- but its release still arrives as a click event on the field -- Activated
     -- for button 1, MouseButton2Click for button 2. Unguarded, binding MOUSE1
     -- flashed the bind and went straight back to listening, and binding MOUSE2
     -- popped the mode menu open. One press produces only one of the two events,
@@ -4286,7 +4286,7 @@ function M.new(root, row, opts)
         self:_openModeMenu()
     end))
 
-    -- ONE InputBegan connection serving both capture and hold/toggle tracking.
+    -- One InputBegan connection serving both capture and hold/toggle tracking.
     root:keep(UserInputService.InputBegan:Connect(function(input)
         if self._capturing then
             self:_capture(input)
@@ -4323,7 +4323,7 @@ end
 function Keybind:_beginCapture()
     if self._capturing then return end
     self._capturing = true
-    -- A GLOBAL lock, not just a local flag: the window's toggle handler reads
+    -- A global lock, not just a local flag: the window's toggle handler reads
     -- it. Without this, binding the menu's own toggle key would bind the key
     -- and close the menu in one press. The same applies to any key the game
     -- sinks, since the toggle deliberately ignores gameProcessedEvent.
@@ -4378,7 +4378,7 @@ function Keybind:_capture(input)
     -- Anything else -- a wheel tick, a gamepad button, a touch -- matches
     -- neither branch above. Treat it as a cancel rather than falling through:
     -- an unhandled input type must not be able to leave _capturing (and the
-    -- GLOBAL root.capturing lock the window's toggle handler reads) stuck on,
+    -- global root.capturing lock the window's toggle handler reads) stuck on,
     -- since that failure is silent and takes out the toggle key for the rest
     -- of the session. InputBegan never fires for mouse movement (that's
     -- InputChanged), so this cannot cancel capture on a pointer twitch.
@@ -4454,7 +4454,7 @@ function Keybind:SetMode(mode)
     self:_paintModes()
 end
 
--- The EXTENSION to the shared four-method contract, and the only one in the
+-- The extension to the shared four-method contract, and the only one in the
 -- library. A consumer's aimbot reads this every frame, not Get.
 function Keybind:IsHeld()
     if self._bind == nil then return false end
@@ -4477,7 +4477,7 @@ end
 __modules["widgets/label"] = function(require)
 -- A single line of static text spanning the whole row.
 --
--- Deliberately NOT wrappable. A wrapped label under-sizes its parent because
+-- Deliberately not wrappable. A wrapped label under-sizes its parent because
 -- height only re-syncs when TextBounds fires, and inside an auto-sizing
 -- container that clips the entire section. Two lines means two Labels.
 
@@ -4524,10 +4524,9 @@ end
 __modules["widgets/listbox"] = function(require)
 -- An inline bordered box of rows with one selected, scrolling past `Rows`.
 --
--- Inline rather than a popup, which is the whole difference from Dropdown: this
--- is the presets box from the gamesense reference, something you look at while
--- doing something else, not something you open and dismiss. M4's config manager
--- is its first real consumer.
+-- Inline rather than a popup -- the difference from Dropdown. This is the
+-- presets box from the gamesense reference, something you look at while doing
+-- something else, not something you open and dismiss.
 
 local safecall = require("util/safecall")
 
@@ -4562,7 +4561,7 @@ function M.new(root, row, opts)
     box.Size = UDim2.new(1, 0, 0, boxHeight)
     box.BorderSizePixel = 0
     box.CanvasSize = UDim2.new()
-    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- The property is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
     box.AutomaticCanvasSize = Enum.AutomaticSize.Y
     box.ScrollBarThickness = 2
     box.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -4802,7 +4801,7 @@ return M
 end
 
 __modules["widgets/slider"] = function(require)
--- Slider: the pure value/fraction maths, plus (from a later task) the 2px track.
+-- Slider: the pure value/fraction maths, plus the 2px track.
 -- The maths half is unit tested, so keep it in the Lua 5.4 / Luau intersection:
 -- no compound assignment, no bitwise ops, no goto.
 
@@ -4924,7 +4923,7 @@ function M.new(root, row, opts)
 
     -- A taller invisible button over the track: a 2px target is unusable, and
     -- this is also what makes click-to-jump land where you clicked. Its height
-    -- is a constant, NOT read from AbsoluteSize, which is zero until the frame
+    -- is a constant, not read from AbsoluteSize, which is zero until the frame
     -- has rendered once.
     local hit = Instance.new("TextButton")
     hit.Name = "hit"
@@ -4988,9 +4987,9 @@ function M.new(root, row, opts)
         theme:bind(value, "TextColor3", "TextDim")
 
         -- Escape must cancel, and it has to be handled explicitly. Roblox does
-        -- NOT restore a TextBox's previous text before releasing focus --
+        -- not restore a TextBox's previous text before releasing focus --
         -- measured in-game: at FocusLost the box still held the typed value
-        -- with cause=Escape. Relying on that would silently COMMIT the edit,
+        -- with cause=Escape. Relying on that would silently commit the edit,
         -- which is the opposite of cancelling.
         if inputThatCausedFocusLoss ~= nil
             and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then
@@ -5117,7 +5116,7 @@ function M.new(root, row, opts)
         box.SelectionStart = 1
     end
 
-    -- Listen on the BOX, not only the field around it. A TextBox takes focus
+    -- Listen on the box, not only the field around it. A TextBox takes focus
     -- natively when clicked even while TextEditable is false, and that click
     -- never reaches the parent button -- so the field's Activated never fired,
     -- TextEditable stayed false, and the box sat focused and selectable while
@@ -5154,7 +5153,7 @@ function M.new(root, row, opts)
 
         local text = box.Text
         if self._numeric and tonumber(text) == nil then
-            -- Rejected on COMMIT rather than by filtering keystrokes: filtering
+            -- Rejected on commit rather than by filtering keystrokes: filtering
             -- fights paste and IME, and a half-typed "-" or "1e" is legitimate
             -- mid-edit. Unparseable input is user error at runtime, so it
             -- reverts silently rather than erroring.
@@ -5168,8 +5167,7 @@ function M.new(root, row, opts)
     return self
 end
 
--- A number when Numeric is set -- that is what the flag is for -- and the raw
--- string otherwise.
+-- A number when Numeric is set, the raw string otherwise.
 function TextBox:Get()
     if self._numeric then return tonumber(self._value) end
     return self._value

@@ -1,6 +1,6 @@
 -- The single registration point for widgets. container.lua generates its
 -- methods from this map, so it never learns what any individual widget is --
--- adding a widget in a later milestone is one line here plus one new file.
+-- adding a widget is one line here plus one new file.
 
 return {
     Label = require("widgets/label"),

@@ -1,15 +1,15 @@
--- Keybind: the pure display-name mapping, plus (from the next task) capture,
--- the mode menu, and IsHeld.
+-- Keybind: the pure display-name mapping, plus capture, the mode menu, and
+-- IsHeld.
 --
 -- formatKey is unit tested, so keep it in the Lua 5.4 / Luau intersection:
--- no compound assignment, no bitwise ops, no goto. That also means NO Enum
+-- no compound assignment, no bitwise ops, no goto. That also means no Enum
 -- values at module scope -- the harness has no `Enum` global.
 
 local M = {}
 
 -- The only bindable mouse inputs there are. Roblox delivers no event at all for
 -- side buttons 4 and 5, and Enum.KeyCode.MouseBackButton is a dead legacy entry
--- InputBegan never fires. Proven in-game with a logger; see the M3 spec.
+-- InputBegan never fires. Proven in-game with a logger.
 local MOUSE = {
     MouseButton1 = "MOUSE1",
     MouseButton2 = "MOUSE2",
@@ -140,11 +140,11 @@ function M.new(root, row, opts)
         end))
     end
 
-    -- Activated fires on button RELEASE, and that matters: starting capture from
+    -- Activated fires on button release, and that matters: starting capture from
     -- InputBegan would let the very same MouseButton1 press reach the capture
     -- handler below and instantly bind MOUSE1.
-    -- Binding a mouse button ON the field consumes the press DOWN in _capture,
-    -- but its RELEASE still arrives as a click event on the field -- Activated
+    -- Binding a mouse button on the field consumes the press down in _capture,
+    -- but its release still arrives as a click event on the field -- Activated
     -- for button 1, MouseButton2Click for button 2. Unguarded, binding MOUSE1
     -- flashed the bind and went straight back to listening, and binding MOUSE2
     -- popped the mode menu open. One press produces only one of the two events,
@@ -167,7 +167,7 @@ function M.new(root, row, opts)
         self:_openModeMenu()
     end))
 
-    -- ONE InputBegan connection serving both capture and hold/toggle tracking.
+    -- One InputBegan connection serving both capture and hold/toggle tracking.
     root:keep(UserInputService.InputBegan:Connect(function(input)
         if self._capturing then
             self:_capture(input)
@@ -204,7 +204,7 @@ end
 function Keybind:_beginCapture()
     if self._capturing then return end
     self._capturing = true
-    -- A GLOBAL lock, not just a local flag: the window's toggle handler reads
+    -- A global lock, not just a local flag: the window's toggle handler reads
     -- it. Without this, binding the menu's own toggle key would bind the key
     -- and close the menu in one press. The same applies to any key the game
     -- sinks, since the toggle deliberately ignores gameProcessedEvent.
@@ -259,7 +259,7 @@ function Keybind:_capture(input)
     -- Anything else -- a wheel tick, a gamepad button, a touch -- matches
     -- neither branch above. Treat it as a cancel rather than falling through:
     -- an unhandled input type must not be able to leave _capturing (and the
-    -- GLOBAL root.capturing lock the window's toggle handler reads) stuck on,
+    -- global root.capturing lock the window's toggle handler reads) stuck on,
     -- since that failure is silent and takes out the toggle key for the rest
     -- of the session. InputBegan never fires for mouse movement (that's
     -- InputChanged), so this cannot cancel capture on a pointer twitch.
@@ -335,7 +335,7 @@ function Keybind:SetMode(mode)
     self:_paintModes()
 end
 
--- The EXTENSION to the shared four-method contract, and the only one in the
+-- The extension to the shared four-method contract, and the only one in the
 -- library. A consumer's aimbot reads this every frame, not Get.
 function Keybind:IsHeld()
     if self._bind == nil then return false end

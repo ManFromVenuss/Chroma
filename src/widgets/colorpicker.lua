@@ -1,5 +1,5 @@
--- Colorpicker: the pure text parsing, plus (from the next task) the swatch, the
--- HSV square, the hue and alpha strips and the text field.
+-- Colorpicker: the pure text parsing, plus the swatch, the HSV square, the hue
+-- and alpha strips and the text field.
 --
 -- parseColor and toHex are unit tested, so keep them in the Lua 5.4 / Luau
 -- intersection: no compound assignment, no bitwise ops, no goto. That also
@@ -16,7 +16,7 @@ local function clampByte(n)
     return n
 end
 
--- Returns r, g, b, a or nil. Unparseable input is USER error at runtime, not a
+-- Returns r, g, b, a or nil. Unparseable input is user error at runtime, not a
 -- programming mistake, so the caller reverts silently rather than erroring --
 -- exactly as the slider's typed value does.
 function M.parseColor(text)
@@ -241,7 +241,7 @@ function M.new(root, row, opts)
 
     local hueY = PAD + SQUARE_H + STRIP_GAP
     local hueStrip, hueMarker = makeStrip("hue", hueY)
-    -- A UIGradient MULTIPLIES its element's colour, which is why the strip's own
+    -- A UIGradient multiplies its element's colour, which is why the strip's own
     -- BackgroundColor3 is white above.
     local hueGradient = Instance.new("UIGradient")
     hueGradient.Color = ColorSequence.new({
@@ -446,7 +446,7 @@ function Colorpicker:_paint()
 
     if self._hasAlpha then
         self._alphaMarker.Position = UDim2.fromScale(self._a, 0.5)
-        -- The wash fades from transparent to the CURRENT colour, so the strip
+        -- The wash fades from transparent to the current colour, so the strip
         -- always previews the actual alpha range for what is selected.
         self._alphaGradient.Color = ColorSequence.new(colour, colour)
     end

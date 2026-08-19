@@ -1,4 +1,4 @@
--- Slider: the pure value/fraction maths, plus (from a later task) the 2px track.
+-- Slider: the pure value/fraction maths, plus the 2px track.
 -- The maths half is unit tested, so keep it in the Lua 5.4 / Luau intersection:
 -- no compound assignment, no bitwise ops, no goto.
 
@@ -120,7 +120,7 @@ function M.new(root, row, opts)
 
     -- A taller invisible button over the track: a 2px target is unusable, and
     -- this is also what makes click-to-jump land where you clicked. Its height
-    -- is a constant, NOT read from AbsoluteSize, which is zero until the frame
+    -- is a constant, not read from AbsoluteSize, which is zero until the frame
     -- has rendered once.
     local hit = Instance.new("TextButton")
     hit.Name = "hit"
@@ -184,9 +184,9 @@ function M.new(root, row, opts)
         theme:bind(value, "TextColor3", "TextDim")
 
         -- Escape must cancel, and it has to be handled explicitly. Roblox does
-        -- NOT restore a TextBox's previous text before releasing focus --
+        -- not restore a TextBox's previous text before releasing focus --
         -- measured in-game: at FocusLost the box still held the typed value
-        -- with cause=Escape. Relying on that would silently COMMIT the edit,
+        -- with cause=Escape. Relying on that would silently commit the edit,
         -- which is the opposite of cancelling.
         if inputThatCausedFocusLoss ~= nil
             and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then

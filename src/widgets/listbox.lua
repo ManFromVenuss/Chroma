@@ -1,9 +1,8 @@
 -- An inline bordered box of rows with one selected, scrolling past `Rows`.
 --
--- Inline rather than a popup, which is the whole difference from Dropdown: this
--- is the presets box from the gamesense reference, something you look at while
--- doing something else, not something you open and dismiss. M4's config manager
--- is its first real consumer.
+-- Inline rather than a popup -- the difference from Dropdown. This is the
+-- presets box from the gamesense reference, something you look at while doing
+-- something else, not something you open and dismiss.
 
 local safecall = require("util/safecall")
 
@@ -38,7 +37,7 @@ function M.new(root, row, opts)
     box.Size = UDim2.new(1, 0, 0, boxHeight)
     box.BorderSizePixel = 0
     box.CanvasSize = UDim2.new()
-    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- The property is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
     box.AutomaticCanvasSize = Enum.AutomaticSize.Y
     box.ScrollBarThickness = 2
     box.ScrollingDirection = Enum.ScrollingDirection.Y
