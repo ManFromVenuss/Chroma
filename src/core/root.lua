@@ -47,6 +47,10 @@ function Root.new(opts)
         _junk = {},
         _degraded = {},
         _alive = true,
+        -- Set by a Keybind while it is capturing. The window's toggle handler
+        -- checks it: without this, binding the menu's own toggle key would bind
+        -- the key AND close the menu in one press.
+        capturing = false,
         parentKind = parentKind,
         theme = Theme.new(opts),
     }, Root)

@@ -80,30 +80,58 @@ function M.new(root, holder, opts)
     self._image = image
     root:keep(image)
 
-    local count = opts.Count or 34
-    local maxSize = opts.MaxSize or 3
-    for i = 1, count do
-        local size = self._rng:NextInteger(1, maxSize)
-        local dot = Instance.new("Frame")
-        dot.Name = "star"
-        dot.Size = UDim2.fromOffset(size, size)
-        dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        dot.BackgroundTransparency = 1
-        dot.BorderSizePixel = 0
-        dot.ZIndex = 2
-        dot.Parent = holder
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(1, 0)
-        corner.Parent = dot
-        root:keep(dot)
+    self._maxSize = opts.MaxSize or 3
 
-        local star = { obj = dot, size = size }
-        self:_reseed(star, true)
-        self._stars[i] = star
-    end
+    -- ONE cleanup closure covering the whole pool, registered once. A keep per
+    -- star would grow the junk list every time setCount raises the count from
+    -- the settings slider -- and the per-star keeps were always redundant, since
+    -- every dot is a descendant of the ScreenGui that Unload destroys anyway.
+    root:keep(function()
+        for i = 1, #self._stars do
+            self._stars[i].obj:Destroy()
+        end
+        self._stars = {}
+    end)
+
+    self:setCount(opts.Count or 34)
 
     self:resize(self._w, self._h)
     return self
+end
+
+function Backdrop:_addStar()
+    local size = self._rng:NextInteger(1, self._maxSize)
+    local dot = Instance.new("Frame")
+    dot.Name = "star"
+    dot.Size = UDim2.fromOffset(size, size)
+    dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dot.BackgroundTransparency = 1
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 2
+    dot.Parent = self._holder
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = dot
+
+    local star = { obj = dot, size = size }
+    self:_reseed(star, true)
+    table.insert(self._stars, star)
+end
+
+-- Grows or shrinks the pool. Called at construction and by the settings slider.
+function Backdrop:setCount(count)
+    if type(count) ~= "number" then return end
+    count = math.floor(count)
+    if count < 0 then count = 0 end
+
+    while #self._stars > count do
+        local star = table.remove(self._stars)
+        star.obj:Destroy()
+    end
+    while #self._stars < count do
+        self:_addStar()
+    end
 end
 
 function Backdrop:_reseed(star, first)

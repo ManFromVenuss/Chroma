@@ -298,30 +298,58 @@ function M.new(root, holder, opts)
     self._image = image
     root:keep(image)
 
-    local count = opts.Count or 34
-    local maxSize = opts.MaxSize or 3
-    for i = 1, count do
-        local size = self._rng:NextInteger(1, maxSize)
-        local dot = Instance.new("Frame")
-        dot.Name = "star"
-        dot.Size = UDim2.fromOffset(size, size)
-        dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        dot.BackgroundTransparency = 1
-        dot.BorderSizePixel = 0
-        dot.ZIndex = 2
-        dot.Parent = holder
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(1, 0)
-        corner.Parent = dot
-        root:keep(dot)
+    self._maxSize = opts.MaxSize or 3
 
-        local star = { obj = dot, size = size }
-        self:_reseed(star, true)
-        self._stars[i] = star
-    end
+    -- ONE cleanup closure covering the whole pool, registered once. A keep per
+    -- star would grow the junk list every time setCount raises the count from
+    -- the settings slider -- and the per-star keeps were always redundant, since
+    -- every dot is a descendant of the ScreenGui that Unload destroys anyway.
+    root:keep(function()
+        for i = 1, #self._stars do
+            self._stars[i].obj:Destroy()
+        end
+        self._stars = {}
+    end)
+
+    self:setCount(opts.Count or 34)
 
     self:resize(self._w, self._h)
     return self
+end
+
+function Backdrop:_addStar()
+    local size = self._rng:NextInteger(1, self._maxSize)
+    local dot = Instance.new("Frame")
+    dot.Name = "star"
+    dot.Size = UDim2.fromOffset(size, size)
+    dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dot.BackgroundTransparency = 1
+    dot.BorderSizePixel = 0
+    dot.ZIndex = 2
+    dot.Parent = self._holder
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = dot
+
+    local star = { obj = dot, size = size }
+    self:_reseed(star, true)
+    table.insert(self._stars, star)
+end
+
+-- Grows or shrinks the pool. Called at construction and by the settings slider.
+function Backdrop:setCount(count)
+    if type(count) ~= "number" then return end
+    count = math.floor(count)
+    if count < 0 then count = 0 end
+
+    while #self._stars > count do
+        local star = table.remove(self._stars)
+        star.obj:Destroy()
+    end
+    while #self._stars < count do
+        self:_addStar()
+    end
 end
 
 function Backdrop:_reseed(star, first)
@@ -704,10 +732,11 @@ function M.new(root, opts, isOver)
         _hidden = false,
     }, Cursor)
 
-    if cfg.Style == false or not DrawingImmediate then
-        if cfg.Style ~= false then
-            root:degrade("cursor", "DrawingImmediate missing: OS cursor retained")
-        end
+    -- Only a MISSING DrawingImmediate is fatal here. A Style of false or "None"
+    -- still connects the paint loop, because the settings page can turn the
+    -- cursor back on -- and it cannot do that if the connection was never made.
+    if not DrawingImmediate then
+        root:degrade("cursor", "DrawingImmediate missing: OS cursor retained")
         return self
     end
 
@@ -739,14 +768,28 @@ function M.new(root, opts, isOver)
 end
 
 function Cursor:_paint()
-    local over = self._isOver()
+    -- Style is read per frame rather than once at construction: the settings
+    -- page changes it live, and "off" has to also restore the OS pointer, which
+    -- the transition write below already does for free.
+    local off = self._cfg.Style == false or self._cfg.Style == "None"
+    local over = (not off) and self._isOver()
 
-    -- _hidden records whether WE have hidden the OS pointer. Write only on a
-    -- transition; comparing with == instead of ~= rewrites the property on every
-    -- frame the pointer is off the window.
-    if over ~= self._hidden then
-        UserInputService.MouseIconEnabled = not over
-        self._hidden = over
+    -- _hidden records whether WE have hidden the OS pointer.
+    --
+    -- This re-asserts while the pointer is over the menu rather than writing
+    -- only on the transition. A transition-only write is enough on a baseplate,
+    -- but a real game that manages its own pointer sets MouseIconEnabled back
+    -- to true every frame and simply wins -- the OS arrow and Chroma's cross
+    -- then draw on top of each other. Reading the property first keeps this to
+    -- one write per frame only while something is actually fighting us.
+    if over then
+        if UserInputService.MouseIconEnabled then
+            UserInputService.MouseIconEnabled = false
+        end
+        self._hidden = true
+    elseif self._hidden then
+        UserInputService.MouseIconEnabled = true
+        self._hidden = false
     end
 
     if not over then return end
@@ -796,6 +839,95 @@ function Cursor:setConfig(opts)
     for key, value in pairs(opts) do
         self._cfg[key] = value
     end
+end
+
+return M
+end
+
+__modules["core/field"] = function(require)
+-- The 110x14 bordered field shared by Dropdown, TextBox and Keybind.
+--
+-- Three consumers with identical chrome, and the accent-on-open border
+-- treatment has to match across them or the widgets read as three different
+-- components. This is widget chrome, not row layout: the row still owns the
+-- slot, and this renders into it.
+
+local M = {}
+
+M.HEIGHT = 14
+
+-- opts: Glyph (a trailing character), Editable (caption is a TextBox),
+-- Placeholder (Editable only).
+function M.new(root, parent, opts)
+    opts = opts or {}
+    local theme = root.theme
+
+    local frame = Instance.new("TextButton")
+    frame.Name = "field"
+    frame.AnchorPoint = Vector2.new(1, 0.5)
+    frame.Position = UDim2.new(1, 0, 0.5, 0)
+    frame.Size = UDim2.new(1, 0, 0, M.HEIGHT)
+    frame.BorderSizePixel = 0
+    frame.Text = ""
+    frame.AutoButtonColor = false
+    frame.Parent = parent
+    theme:bind(frame, "BackgroundColor3", "Field")
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Parent = frame
+    theme:bind(stroke, "Color", "FieldBorder")
+
+    -- A TextBox kept non-editable until clicked, rather than a label swapped for
+    -- an input: the proven pattern from the slider's value field, where nothing
+    -- moves between the two states.
+    local caption = Instance.new(opts.Editable and "TextBox" or "TextLabel")
+    caption.Name = "caption"
+    caption.BackgroundTransparency = 1
+    caption.Position = UDim2.fromOffset(4, 0)
+    caption.Size = UDim2.new(1, -(opts.Glyph and 16 or 8), 1, 0)
+    caption.Font = Enum.Font.Ubuntu
+    caption.TextSize = 11
+    caption.TextXAlignment = Enum.TextXAlignment.Left
+    caption.TextTruncate = Enum.TextTruncate.AtEnd
+    caption.Text = ""
+    caption.Parent = frame
+    theme:bind(caption, "TextColor3", "Text")
+
+    if opts.Editable then
+        caption.TextEditable = false
+        caption.ClearTextOnFocus = false
+        caption.PlaceholderText = opts.Placeholder or ""
+        theme:bind(caption, "PlaceholderColor3", "TextDim")
+    end
+
+    local api = { frame = frame, stroke = stroke, label = caption }
+
+    if opts.Glyph then
+        local glyph = Instance.new("TextLabel")
+        glyph.Name = "glyph"
+        glyph.AnchorPoint = Vector2.new(1, 0.5)
+        glyph.Position = UDim2.new(1, -4, 0.5, 0)
+        glyph.Size = UDim2.fromOffset(8, 10)
+        glyph.BackgroundTransparency = 1
+        glyph.Font = Enum.Font.Ubuntu
+        glyph.TextSize = 8
+        glyph.Text = opts.Glyph
+        glyph.Parent = frame
+        theme:bind(glyph, "TextColor3", "TextDim")
+        api.glyph = glyph
+    end
+
+    -- The border tracks the accent while the field is live: popup open,
+    -- capturing a key, or being typed into. Rebind rather than write directly --
+    -- theme:apply() runs every frame while the accent animates, so a binding
+    -- keeps cycling with it instead of freezing at the hue it had on click.
+    function api.setActive(active)
+        theme:unbind(stroke)
+        theme:bind(stroke, "Color", active and "Accent" or "FieldBorder")
+    end
+
+    return api
 end
 
 return M
@@ -897,7 +1029,10 @@ function M.new(root, window, opts)
     button.BackgroundTransparency = 1
     button.Text = ""
     button.AutoButtonColor = false
-    button.Parent = window._rail
+    -- A pinned page sits in the rail's bottom strip rather than in its list, so
+    -- it stays visually separated from the consumer's pages however many they
+    -- add. Today that is only the settings page.
+    button.Parent = opts.Pinned and window._railBottom or window._rail
     root:keep(button)
 
     local marker = Instance.new("Frame")
@@ -924,7 +1059,14 @@ function M.new(root, window, opts)
         glyph.BackgroundTransparency = 1
     else
         glyph = Instance.new("TextLabel")
-        glyph.Text = name:sub(1, 1):upper()
+        -- A non-asset Icon string is used VERBATIM, which is how the settings
+        -- page gets its gear: U+2699, verified in-game to render in both Ubuntu
+        -- and Code (the same probe drew U+2731 as an empty box, so the check
+        -- discriminates). Falling back to the page's initial keeps every other
+        -- page working unchanged, and M5 swaps in a Lucide gear by passing an
+        -- asset id instead.
+        glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
+            or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
         glyph.TextSize = 12
         glyph.Size = UDim2.fromOffset(14, 14)
@@ -1007,6 +1149,7 @@ function M.new(root, window, opts)
         _glyph = glyph,
         name = name,
         body = body,
+        pinned = opts.Pinned == true,
     }, Page)
 
     root:keep(button.Activated:Connect(function()
@@ -1104,6 +1247,9 @@ function Page:setActiveTab(tab)
         end
         if active then t:_layout() end
     end
+    -- A popup opened from a row in the outgoing tab has no link to it and would
+    -- be left floating over the incoming one.
+    self._window:_layoutChanged()
 end
 
 -- Pages without tabs proxy straight to an implicit one, so a simple page needs
@@ -1129,6 +1275,222 @@ function Page:relayout()
     for i = 1, #self._tabs do
         self._tabs[i]:_layout()
     end
+end
+
+return M
+end
+
+__modules["core/popup"] = function(require)
+-- Popup: the pure placement maths, plus (from the next task) the single-slot
+-- overlay manager.
+--
+-- place() is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- no compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+M.GAP = 2       -- pixels between the control slot and the popup
+M.MARGIN = 6    -- minimum distance from any screen edge
+
+-- Places a popup against the rect of the control that opened it.
+--
+-- Popups align to the RIGHT edge of the control slot and extend leftward. The
+-- colorpicker is 176px against a 110px slot, so left-aligning would hang it out
+-- over the neighbouring column; right-aligning keeps it inside the window.
+--
+-- Everything here is in the anchor's coordinate space, exactly as Tooltip.place
+-- is -- GetMouseLocation never enters the calculation, so the GUI-inset
+-- mismatch that caused four earlier bugs cannot happen.
+function M.place(anchor, size, viewport, gap, margin)
+    gap = gap or M.GAP
+    margin = margin or M.MARGIN
+
+    local x = anchor.x + anchor.w - size.w
+    if x + size.w > viewport.w - margin then
+        x = viewport.w - margin - size.w
+    end
+    if x < margin then x = margin end
+
+    local y = anchor.y + anchor.h + gap
+    if y + size.h > viewport.h - margin then
+        -- Flip ABOVE the anchor rather than clamping upward: clamping would
+        -- slide the popup over the control that opened it, which reads as the
+        -- menu having eaten the row.
+        y = anchor.y - size.h - gap
+    end
+    if y < margin then y = margin end
+
+    return x, y
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the Lua 5.4 harness requires this file to reach place().
+local UserInputService
+local RunService
+
+local Popup = {}
+Popup.__index = Popup
+
+-- Whether an AbsolutePosition-space point falls inside a GuiObject's rect.
+local function inside(object, x, y)
+    if object == nil then return false end
+    local p, s = object.AbsolutePosition, object.AbsoluteSize
+    return x >= p.X and x <= p.X + s.X and y >= p.Y and y <= p.Y + s.Y
+end
+
+-- ONE popup at a time, and that is a decision rather than a simplification.
+-- Containers clip and columns scroll, so a popup has to live in the overlay
+-- layer positioned by absolute coordinates -- it has NO parent-child link to
+-- the row that opened it, and nothing hides it automatically. With one slot,
+-- "this popup is stale, close it" is one code path. With several, every
+-- dismissal event has to walk a list and decide individually, and the failure
+-- mode is a dropdown left floating over an unrelated page.
+function M.new(root)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+    RunService = RunService or game:GetService("RunService")
+
+    local self = setmetatable({
+        _root = root,
+        _owner = nil,
+        _frame = nil,
+        _anchor = nil,
+        _onClose = nil,
+        _watch = nil,
+    }, Popup)
+
+    -- Click-outside dismissal is a hit test, NOT a full-screen blocker button.
+    -- A blocker was tried first and swallowed the click that dismissed the
+    -- popup: dragging the title bar with a dropdown open closed the dropdown on
+    -- mouse-RELEASE and never started the drag, because the bar never received
+    -- the press. Testing the pointer against the popup's own rect lets the click
+    -- reach whatever is underneath, which is what a menu should do.
+    root:keep(UserInputService.InputBegan:Connect(function(input)
+        if self._owner == nil then return end
+
+        if input.KeyCode == Enum.KeyCode.Escape then
+            self:close()
+            return
+        end
+
+        -- Touch is included so a tap outside cannot leave a popup stuck open
+        -- forever on a touch-only target. Chroma is mouse-oriented and this is
+        -- untested there, but a silent dead end is worse than an untested line.
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.MouseButton2
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        local mx, my = root:mouseInGuiSpace()
+        -- The anchor counts as inside. A click on the field that opened this
+        -- popup must fall through to that widget's own toggle, or the widget
+        -- would reopen what this just closed and the popup could never be
+        -- dismissed by clicking its own control.
+        if inside(self._frame, mx, my) or inside(self._anchor, mx, my) then return end
+        self:close()
+    end))
+
+    -- ONE cleanup closure for the watch connection, registered once. Registering
+    -- per open would grow the junk list on every click.
+    root:keep(function()
+        if self._watch then
+            self._watch:Disconnect()
+            self._watch = nil
+        end
+    end)
+
+    return self
+end
+
+-- `anchor` is the GuiObject that opened the popup (a field, a swatch). The rect
+-- is read from it rather than passed in, so the caller cannot get the two out of
+-- step, and it gives the drift watch below something to watch.
+function Popup:open(owner, frame, anchor, onClose)
+    -- close() fires the outgoing popup's onClose, and that callback may itself
+    -- open a popup. Loop until the slot is actually empty: otherwise the open
+    -- below would overwrite _watch and orphan a RenderStepped connection that
+    -- the re-entrant open had just installed.
+    local guard = 0
+    while self._owner ~= nil or self._watch ~= nil do
+        self:close()
+        guard = guard + 1
+        assert(guard < 8, "chroma: a popup onClose callback kept reopening a popup")
+    end
+
+    -- Positioned from the frame's declared pixel Size, NOT AbsoluteSize:
+    -- AbsoluteSize is (0, 0) until the frame has rendered once, and a popup is
+    -- placed the instant it opens. Every popup therefore sets an explicit
+    -- offset size.
+    local w, h = frame.Size.X.Offset, frame.Size.Y.Offset
+    assert(w > 0 and h > 0, "chroma: popup frames must declare a pixel Size")
+
+    self._owner = owner
+    self._frame = frame
+    self._anchor = anchor
+    self._onClose = onClose
+
+    local pos, size = anchor.AbsolutePosition, anchor.AbsoluteSize
+    local viewport = workspace.CurrentCamera.ViewportSize
+    local x, y = M.place(
+        { x = pos.X, y = pos.Y, w = size.X, h = size.Y },
+        { w = w, h = h },
+        { w = viewport.X, h = viewport.Y })
+    frame.Position = UDim2.fromOffset(self._root:toLayerSpace(x, y, frame.Parent))
+    frame.Visible = true
+
+    -- While one is open -- and only then -- close it if its anchor moves at all.
+    -- This is the same "watch while visible" pattern the tooltip uses for a
+    -- stuck hover, and it covers column scrolling, window dragging and resizing
+    -- in one place. Page and tab switches do NOT move the anchor (an inactive
+    -- page keeps its geometry), so those are wired separately in bindDismissal.
+    local originX, originY = pos.X, pos.Y
+    self._watch = RunService.RenderStepped:Connect(function()
+        if not anchor.Parent then
+            self:close()
+            return
+        end
+        local p = anchor.AbsolutePosition
+        if p.X ~= originX or p.Y ~= originY then
+            self:close()
+        end
+    end)
+end
+
+function Popup:close()
+    -- Captured and fired LAST, after every field is cleared: an onClose that
+    -- opens something else must not race a half-torn-down manager.
+    local onClose = self._onClose
+
+    if self._watch then
+        self._watch:Disconnect()
+        self._watch = nil
+    end
+    if self._frame then
+        self._frame.Visible = false
+    end
+    self._owner = nil
+    self._frame = nil
+    self._anchor = nil
+    self._onClose = nil
+
+    if onClose then onClose() end
+end
+
+-- With no argument: is anything open. With an owner: is that owner's popup
+-- open, which is what lets a widget toggle itself.
+function Popup:isOpen(owner)
+    if owner == nil then return self._owner ~= nil end
+    return self._owner == owner
+end
+
+-- A popup never follows its owner; it closes. Anything that reflows or replaces
+-- the view routes here.
+function Popup:bindDismissal(window)
+    window:onLayoutChanged(function()
+        self:close()
+    end)
 end
 
 return M
@@ -1184,6 +1546,10 @@ function Root.new(opts)
         _junk = {},
         _degraded = {},
         _alive = true,
+        -- Set by a Keybind while it is capturing. The window's toggle handler
+        -- checks it: without this, binding the menu's own toggle key would bind
+        -- the key AND close the menu in one press.
+        capturing = false,
         parentKind = parentKind,
         theme = Theme.new(opts),
     }, Root)
@@ -1522,6 +1888,151 @@ end
 return M
 end
 
+__modules["core/settings"] = function(require)
+-- The built-in settings page: a pinned rail entry that configures Chroma itself.
+--
+-- Everything here writes through knobs that already existed -- setAccent,
+-- setPalette, the cursor config, the Animations flag -- so this file adds no
+-- infrastructure, only a surface. Settings are NOT persisted in M3; M4's config
+-- manager adds that.
+
+local M = {}
+
+-- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
+-- so no image asset is needed; M5 can pass a Lucide asset id here instead
+-- without touching anything else.
+local GEAR = "\u{2699}"
+
+function M.build(root, window)
+    local theme = root.theme
+
+    local page = window:Page({ Name = "Settings", Icon = GEAR, Pinned = true })
+    local left, right = page:Column(), page:Column()
+
+    --== accent ==--
+    local accent = left:Container("Accent")
+
+    -- The colorpicker is created before the mode dropdown so the dropdown's
+    -- callback can reach it. A static accent is only meaningful alongside a
+    -- colour, so the two are deliberately adjacent.
+    -- Three modes over two axes: whether the hue animates, and whether the
+    -- window outline runs a two-tone gradient. Gradient is the interesting one
+    -- and was found by accident -- an unanimated accent still hue-shifted the
+    -- outline's far end, which reads as a static sheen rather than a bug.
+    local colour
+    local mode = accent:Dropdown({
+        Name = "Mode",
+        Options = { "RGB", "Gradient", "Static" },
+        -- Read from the theme rather than assuming: a window constructed with
+        -- Gradient = false and a static accent would otherwise boot showing
+        -- "Gradient" while rendering flat hairlines.
+        Default = theme:isAnimated() and "RGB"
+            or (theme:isGradient() and "Gradient" or "Static"),
+        Description = "RGB cycles the hue. Gradient holds one colour but keeps " ..
+            "the two-tone sheen on the outline. Static is a single flat colour.",
+        Callback = function(value)
+            if value == "RGB" then
+                window:setAccent("RGB")
+            else
+                window:setAccent(colour:Get())
+            end
+            window:setGradient(value ~= "Static")
+        end,
+    })
+
+    colour = accent:Colorpicker({
+        Name = "Colour",
+        Default = theme:get("Accent"),
+        Description = "Used by Gradient and Static; RGB picks its own hue.",
+        Callback = function(value)
+            if mode:Get() ~= "RGB" then
+                window:setAccent(value)
+            end
+        end,
+    })
+
+    accent:Slider({
+        Name = "Speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
+        Description = "Hue rotations per second while Mode is RGB.",
+        Callback = function(value)
+            window:setAccentSpeed(value)
+        end,
+    })
+
+    --== window ==--
+    local shell = left:Container("Window")
+
+    shell:Toggle({
+        Name = "Animations", Default = true,
+        Description = "The two-stage open and close slide. Turn off for an instant show and hide.",
+        Callback = function(value)
+            window:setAnimations(value)
+        end,
+    })
+
+    shell:Slider({
+        Name = "Particles", Min = 0, Max = 80, Default = 34,
+        Description = "Drifting stars over the backdrop.",
+        Callback = function(value)
+            window:setParticleCount(value)
+        end,
+    })
+
+    shell:Keybind({
+        Name = "Toggle key", Default = window._toggleKey, Mode = "Always",
+        Description = "Right-click for the mode menu. Escape while capturing clears the bind.",
+        Callback = function(bind)
+            window:setToggleKey(bind)
+        end,
+    })
+
+    --== cursor ==--
+    local pointer = right:Container("Cursor")
+
+    pointer:Dropdown({
+        Name = "Style", Options = { "Cross", "None" }, Default = "Cross",
+        Description = "None restores the operating system pointer over the menu.",
+        Callback = function(value)
+            window:setCursor({ Style = value })
+        end,
+    })
+
+    pointer:Colorpicker({
+        Name = "Colour", Default = Color3.fromRGB(255, 255, 255),
+        Callback = function(value)
+            window:setCursor({ Color = value })
+        end,
+    })
+
+    pointer:Slider({
+        Name = "Size", Min = 3, Max = 14, Default = 7,
+        Callback = function(value)
+            window:setCursor({ Size = value })
+        end,
+    })
+
+    pointer:Slider({
+        Name = "Gap", Min = 0, Max = 6, Default = 0,
+        Description = "Opens a hole at the centre of the cross.",
+        Callback = function(value)
+            window:setCursor({ Gap = value })
+        end,
+    })
+
+    pointer:Toggle({
+        Name = "Outline", Default = true,
+        Description = "A black border under the cross, so it stays visible over bright ground.",
+        Callback = function(value)
+            window:setCursor({ Outline = value })
+        end,
+    })
+
+    return page
+end
+
+return M
+end
+
 __modules["core/theme"] = function(require)
 -- Palette, accent engine and binding registry.
 -- Pure logic: no Instance API is called, only property assignment on whatever
@@ -1591,6 +2102,7 @@ function Theme.new(opts)
         _accentSpeed = opts.AccentSpeed or 0.15,
         _accentSat = opts.AccentSaturation or 0.86,
         _accentVal = opts.AccentValue or 0.72,
+        _gradient = opts.Gradient ~= false,
     }, Theme)
 
     for key, value in pairs(TRANSPARENCY) do
@@ -1619,6 +2131,25 @@ end
 
 -- Mutates the stored palette only; existing bindings keep their old colour
 -- until the caller calls apply().
+-- Whether the outline runs a two-tone hue-shifted gradient or a single flat
+-- colour. Independent of whether the accent animates: "RGB" decides whether the
+-- hue moves over time, this decides whether the gradient's two ends differ at
+-- any given instant.
+function Theme:setGradient(enabled)
+    self._gradient = enabled ~= false
+    self:_recompute(self._clock or 0)
+end
+
+function Theme:isGradient()
+    return self._gradient
+end
+
+function Theme:setAccentSpeed(speed)
+    if type(speed) ~= "number" then return end
+    self._accentSpeed = speed
+    self:_recompute(self._clock or 0)
+end
+
 function Theme:setPalette(overrides)
     for key, value in pairs(overrides) do
         self._stored[key] = value
@@ -1647,7 +2178,14 @@ function Theme:_recompute(clock)
     d.Selection = accent
     d.Glow = accent
     d.HairA = accent
-    d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
+    -- HairA and HairB are the two ends of the gradient on the window outline
+    -- and the title bar's hairlines. Equal ends collapse it to a flat colour,
+    -- which is the whole difference between the Static and Gradient modes.
+    if self._gradient then
+        d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
+    else
+        d.HairB = accent
+    end
 end
 
 -- Advance the clock. Cheap when the accent is static: recompute is skipped.
@@ -1932,6 +2470,8 @@ local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Popup = require("core/popup")
+local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
@@ -1960,6 +2500,7 @@ function M.new(root, opts)
         _theme = theme,
         _fullSize = size,
         _minSize = Vector2.new(MIN_WIDTH, MIN_HEIGHT),
+        _layoutListeners = {},
     }, Window)
 
     -- Frame keeps AnchorPoint (0,0) forever: it is the drag origin AND the
@@ -2121,6 +2662,47 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
+    -- A bottom strip for pinned entries. It is a sibling of the rail, NOT a
+    -- child of it, and that is the whole point: a UIListLayout arranges every
+    -- child of its parent, so parenting this to the rail made the list lay it
+    -- out as an ordinary item and the gear appeared at the TOP. Anchored over
+    -- the rail's own footprint instead, it is outside that layout's reach.
+    --
+    -- That footprint is shared implicitly: this lines up with the rail only
+    -- because the rail sits at (0, 0) and spans the body's full height. Give
+    -- the rail an offset and this drifts silently.
+    local railBottom = Instance.new("Frame")
+    railBottom.Name = "railBottom"
+    railBottom.AnchorPoint = Vector2.new(0, 1)
+    railBottom.Position = UDim2.new(0, 0, 1, 0)
+    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 36)
+    railBottom.BackgroundTransparency = 1
+    railBottom.BorderSizePixel = 0
+    railBottom.ZIndex = 6
+    railBottom.Parent = body
+    self._railBottom = railBottom
+
+    local railBottomLayout = Instance.new("UIListLayout")
+    railBottomLayout.FillDirection = Enum.FillDirection.Vertical
+    railBottomLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    railBottomLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    railBottomLayout.Padding = UDim.new(0, 5)
+    railBottomLayout.Parent = railBottom
+
+    -- A UIListLayout arranges EVERY child, so the rule is part of the list
+    -- rather than positioned over it -- the same trap that made the sub-tab
+    -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
+    -- buttons, which is what "separated from the pages" means visually.
+    local railRule = Instance.new("Frame")
+    railRule.Name = "rule"
+    railRule.Size = UDim2.new(1, -12, 0, 1)
+    railRule.BorderSizePixel = 0
+    railRule.LayoutOrder = 0
+    railRule.ZIndex = 6
+    railRule.Parent = railBottom
+    theme:bind(railRule, "BackgroundColor3", "ContainerBorder")
+
     -- Everything right of the rail. Pages fill this and show one at a time.
     local pageArea = Instance.new("Frame")
     pageArea.Name = "pages"
@@ -2134,13 +2716,16 @@ function M.new(root, opts)
     self._pages = {}
     self._activePage = nil
 
-    -- The tooltip manager is owned by the window and reached through root, so
-    -- row.lua can attach to it without being handed one explicitly.
+    -- The tooltip and popup managers are owned by the window and reached through
+    -- root, so row.lua and every widget can use them without being handed one.
     root.tooltip = Tooltip.new(root)
+    root.popup = Popup.new(root)
+    root.popup:bindDismissal(self)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)
         frame.Position = UDim2.fromOffset(start.X + delta.X, start.Y + delta.Y)
+        self:_layoutChanged()
     end, function()
         -- AbsolutePosition is screen space; Position is parent space. With
         -- IgnoreGuiInset = true the window layer sits `inset` above the
@@ -2217,11 +2802,18 @@ function M.new(root, opts)
     --== toggle key ==--
     -- gameProcessedEvent is IGNORED by default: games sink keys, and O is sunk
     -- in one of the target games. RespectGameProcessed opts into politeness.
-    local toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
+    self._toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
     local respect = opts.RespectGameProcessed == true
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if respect and gameProcessed then return end
-        if input.KeyCode == toggleKey then
+        -- A Keybind capture owns the keyboard while it is open, or binding the
+        -- toggle key would bind it AND close the menu in one press.
+        if root.capturing then return end
+        local key = self._toggleKey
+        if key == nil then return end
+        if key.EnumType == Enum.UserInputType then
+            if input.UserInputType == key then self:toggle() end
+        elseif input.KeyCode == key then
             self:toggle()
         end
     end))
@@ -2238,11 +2830,31 @@ function M.new(root, opts)
         self._bodyStrokeGradient.Color = hairColor
     end)
 
+    -- Built before any consumer page exists, which is fine because a pinned page
+    -- never auto-activates. Opting out is one flag rather than a separate
+    -- constructor, since a consumer who does not want it is the rare case.
+    if opts.Settings ~= false then
+        self._settingsPage = Settings.build(root, self)
+    end
+
     self:setSize(size.X, size.Y)
     self._anim:_snap(false)
     self:open()
 
     return self
+end
+
+-- Anything that reflows or replaces the view. The popup manager is the only
+-- subscriber today; keeping it a list means the next one does not have to
+-- rewrite this.
+function Window:onLayoutChanged(fn)
+    table.insert(self._layoutListeners, fn)
+end
+
+function Window:_layoutChanged()
+    for i = 1, #self._layoutListeners do
+        self._layoutListeners[i]()
+    end
 end
 
 function Window:_makeDragHandle(handle, onMove, readStart)
@@ -2283,15 +2895,19 @@ function Window:setSize(width, height)
             self._pages[i]:relayout()
         end
     end
+    self:_layoutChanged()
 end
 
 function Window:Page(opts)
     local page = Page.new(self._root, self, opts or {})
     table.insert(self._pages, page)
-    if not self._activePage then
+    -- A pinned page must never become the default view. The settings page is
+    -- built before any consumer page exists, so plain "first page wins" would
+    -- open the menu on Settings every single time.
+    if not self._activePage and not page.pinned then
         self:setActivePage(page)
     else
-        page:setActive(false)
+        page:setActive(page == self._activePage)
     end
     return page
 end
@@ -2302,6 +2918,7 @@ function Window:setActivePage(page)
         self._pages[i]:setActive(self._pages[i] == page)
     end
     page:relayout()
+    self:_layoutChanged()
 end
 
 function Window:getActivePage()
@@ -2315,6 +2932,7 @@ function Window:open()
 end
 
 function Window:close()
+    self:_layoutChanged()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
     -- Stars keep no state worth preserving, so pausing while hidden is free.
@@ -2343,6 +2961,34 @@ end
 function Window:setAccent(accent)
     self._theme:setAccent(accent)
     self._theme:apply()
+end
+
+-- Accepts a KeyCode or a bindable UserInputType, or nil for no toggle at all.
+-- The settings page's Keybind writes here.
+function Window:setToggleKey(key)
+    self._toggleKey = key
+end
+
+function Window:setAnimations(on)
+    self._animate = on ~= false
+end
+
+function Window:setGradient(enabled)
+    self._theme:setGradient(enabled)
+    self._theme:apply()
+end
+
+function Window:setAccentSpeed(speed)
+    self._theme:setAccentSpeed(speed)
+    self._theme:apply()
+end
+
+function Window:setCursor(opts)
+    self._cursor:setConfig(opts)
+end
+
+function Window:setParticleCount(count)
+    self._backdrop:setCount(count)
 end
 
 M.Window = Window
@@ -2507,6 +3153,982 @@ end
 return Signal
 end
 
+__modules["widgets/button"] = function(require)
+-- A full-width bordered button with the label centred.
+--
+-- It takes the whole row rather than sitting in the control slot: a left label
+-- with a small button on the right reads as broken.
+
+local safecall = require("util/safecall")
+
+local M = {}
+
+-- No control slot. See label.lua for the rationale.
+M.FullWidth = true
+
+local Button = {}
+Button.__index = Button
+
+local ROW_HEIGHT = 22
+local BOX_HEIGHT = 18
+
+function M.new(root, row, opts)
+    local theme = root.theme
+
+    row.label.Text = ""
+    row.setHeight(ROW_HEIGHT)
+
+    local box = Instance.new("TextButton")
+    box.Name = "button"
+    box.AnchorPoint = Vector2.new(0.5, 0.5)
+    box.Position = UDim2.fromScale(0.5, 0.5)
+    box.Size = UDim2.new(1, 0, 0, BOX_HEIGHT)
+    box.BorderSizePixel = 0
+    box.Font = Enum.Font.Ubuntu
+    box.TextSize = 11
+    box.Text = opts.Text or opts.Name or "Button"
+    box.AutoButtonColor = false
+    -- Above the row's own hit button (ZIndex 2), or the row swallows the click.
+    box.ZIndex = 3
+    box.Parent = row.frame
+    theme:bind(box, "BackgroundColor3", "Field")
+    theme:bind(box, "TextColor3", "Text")
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Parent = box
+    theme:bind(stroke, "Color", "FieldBorder")
+
+    -- Rebind rather than write directly: theme:apply() runs every frame while
+    -- the accent animates, so a binding keeps cycling instead of freezing at
+    -- whatever hue was current on MouseEnter.
+    root:keep(box.MouseEnter:Connect(function()
+        theme:unbind(stroke)
+        theme:unbind(box)
+        theme:bind(stroke, "Color", "Accent")
+        theme:bind(box, "BackgroundColor3", "Field")
+        theme:bind(box, "TextColor3", "TextBright")
+    end))
+
+    root:keep(box.MouseLeave:Connect(function()
+        theme:unbind(stroke)
+        theme:unbind(box)
+        theme:bind(stroke, "Color", "FieldBorder")
+        theme:bind(box, "BackgroundColor3", "Field")
+        theme:bind(box, "TextColor3", "Text")
+    end))
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _label = opts.Name or opts.Text or "Button",
+        _callback = opts.Callback,
+    }, Button)
+
+    root:keep(box.Activated:Connect(function()
+        safecall.call(self._label, self._callback)
+    end))
+
+    return self
+end
+
+-- A Button has no value. The methods exist anyway, for the same reason
+-- Separator's do: a caller must not have to know which widgets have them.
+function Button:Get() return nil end
+function Button:Set() end
+function Button:OnChanged() end
+function Button:SetVisible(visible) self._row.frame.Visible = visible end
+
+return M
+end
+
+__modules["widgets/colorpicker"] = function(require)
+-- Colorpicker: the pure text parsing, plus (from the next task) the swatch, the
+-- HSV square, the hue and alpha strips and the text field.
+--
+-- parseColor and toHex are unit tested, so keep them in the Lua 5.4 / Luau
+-- intersection: no compound assignment, no bitwise ops, no goto. That also
+-- means no Color3 construction here -- these deal in plain numbers, and the
+-- Instance half converts.
+
+local M = {}
+
+-- Channels are 0..255 and alpha is 0..1, matching how each is written by hand.
+local function clampByte(n)
+    n = math.floor(n + 0.5)
+    if n < 0 then return 0 end
+    if n > 255 then return 255 end
+    return n
+end
+
+-- Returns r, g, b, a or nil. Unparseable input is USER error at runtime, not a
+-- programming mistake, so the caller reverts silently rather than erroring --
+-- exactly as the slider's typed value does.
+function M.parseColor(text)
+    if type(text) ~= "string" then return nil end
+
+    local s = text:gsub("%s", "")
+    if s == "" then return nil end
+
+    -- Sniffed on the comma rather than by asking the caller which format it is:
+    -- the whole point of one field is that it takes either.
+    if s:find(",", 1, true) then
+        local parts = {}
+        for piece in s:gmatch("[^,]+") do
+            table.insert(parts, tonumber(piece))
+        end
+        if #parts < 3 or #parts > 4 then return nil end
+        for i = 1, #parts do
+            if parts[i] == nil then return nil end
+        end
+
+        local a = parts[4]
+        if a == nil then
+            a = 1
+        elseif a > 1 then
+            -- 255,0,0,255 means opaque. Clamping is what they meant; rejecting
+            -- it would be pedantic about a format nobody agreed on.
+            a = 1
+        elseif a < 0 then
+            a = 0
+        end
+        return clampByte(parts[1]), clampByte(parts[2]), clampByte(parts[3]), a
+    end
+
+    local hex = s:gsub("^#", "")
+    if hex:match("^%x+$") == nil then return nil end
+
+    local n = #hex
+    if n == 3 or n == 4 then
+        -- Each digit doubles: F -> FF, which is 15 * 17 = 255.
+        local r = tonumber(hex:sub(1, 1), 16) * 17
+        local g = tonumber(hex:sub(2, 2), 16) * 17
+        local b = tonumber(hex:sub(3, 3), 16) * 17
+        local a = 1
+        if n == 4 then a = tonumber(hex:sub(4, 4), 16) * 17 / 255 end
+        return r, g, b, a
+    end
+    if n == 6 or n == 8 then
+        local r = tonumber(hex:sub(1, 2), 16)
+        local g = tonumber(hex:sub(3, 4), 16)
+        local b = tonumber(hex:sub(5, 6), 16)
+        local a = 1
+        if n == 8 then a = tonumber(hex:sub(7, 8), 16) / 255 end
+        return r, g, b, a
+    end
+    return nil
+end
+
+-- Hex is the display format, being the compact one. Alpha is appended only when
+-- the picker has an alpha strip at all.
+function M.toHex(r, g, b, a)
+    if a == nil then
+        return string.format("#%02X%02X%02X", clampByte(r), clampByte(g), clampByte(b))
+    end
+    return string.format("#%02X%02X%02X%02X",
+        clampByte(r), clampByte(g), clampByte(b), clampByte(a * 255))
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local safecall = require("util/safecall")
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the harness requires this file to reach parseColor.
+local UserInputService
+
+local Colorpicker = {}
+Colorpicker.__index = Colorpicker
+
+local PAD = 7
+local INNER = 162
+local WIDTH = INNER + PAD * 2   -- 176
+local SQUARE_H = 96
+local STRIP_H = 10
+local STRIP_GAP = 6
+local FIELD_H = 16
+local FIELD_GAP = 7
+local CHEQUER = 5   -- chequerboard cell, in pixels
+
+local function popupHeight(hasAlpha)
+    local strips = hasAlpha and 2 or 1
+    return PAD + SQUARE_H + strips * (STRIP_GAP + STRIP_H)
+        + FIELD_GAP + FIELD_H + PAD
+end
+
+function M.new(root, row, opts)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+
+    local theme = root.theme
+
+    local default = opts.Default or Color3.fromRGB(255, 255, 255)
+    if typeof(default) ~= "Color3" then
+        -- A non-Color3 Default can only be a typo, and silently falling back to
+        -- white hides it.
+        error(string.format("chroma: colorpicker '%s' Default must be a Color3, got %s",
+            tostring(opts.Name), typeof(default)), 2)
+    end
+
+    local hasAlpha = type(opts.Alpha) == "number"
+
+    --== closed state: a 110px swatch filling the control slot ==--
+    -- A small square leaves dead space beside it and is a poor click target.
+    local swatch = Instance.new("TextButton")
+    swatch.Name = "swatch"
+    swatch.AnchorPoint = Vector2.new(1, 0.5)
+    swatch.Position = UDim2.new(1, 0, 0.5, 0)
+    swatch.Size = UDim2.new(1, 0, 0, 14)
+    swatch.BorderSizePixel = 0
+    swatch.Text = ""
+    swatch.AutoButtonColor = false
+    swatch.Parent = row.control
+
+    local swatchStroke = Instance.new("UIStroke")
+    swatchStroke.Thickness = 1
+    swatchStroke.Parent = swatch
+    theme:bind(swatchStroke, "Color", "FieldBorder")
+
+    --== the popup ==--
+    local popup = Instance.new("Frame")
+    popup.Name = "colorpicker"
+    popup.Size = UDim2.fromOffset(WIDTH, popupHeight(hasAlpha))
+    popup.BorderSizePixel = 0
+    popup.Visible = false
+    popup.ZIndex = 10
+    popup.Parent = root.popupLayer
+    root:keep(popup)
+    theme:bind(popup, "BackgroundColor3", "Window")
+
+    local popupStroke = Instance.new("UIStroke")
+    popupStroke.Thickness = 1
+    popupStroke.Parent = popup
+    theme:bind(popupStroke, "Color", "Accent")
+
+    -- The saturation/value square: a pure-hue base with a white gradient across
+    -- it and a black gradient down it. Roblox has no HSV picker primitive, and
+    -- two gradients reproduce one exactly -- no image asset, no upload to
+    -- moderate, and it recolours by writing one BackgroundColor3.
+    local square = Instance.new("Frame")
+    square.Name = "square"
+    square.Position = UDim2.fromOffset(PAD, PAD)
+    square.Size = UDim2.fromOffset(INNER, SQUARE_H)
+    square.BorderSizePixel = 0
+    square.BackgroundColor3 = Color3.fromHSV(0, 1, 1)
+    square.ZIndex = 11
+    square.Parent = popup
+
+    local satLayer = Instance.new("Frame")
+    satLayer.Name = "saturation"
+    satLayer.Size = UDim2.fromScale(1, 1)
+    satLayer.BackgroundColor3 = Color3.new(1, 1, 1)
+    satLayer.BorderSizePixel = 0
+    satLayer.ZIndex = 12
+    satLayer.Parent = square
+    local satGradient = Instance.new("UIGradient")
+    satGradient.Transparency = NumberSequence.new(0, 1)
+    satGradient.Parent = satLayer
+
+    local valLayer = Instance.new("Frame")
+    valLayer.Name = "value"
+    valLayer.Size = UDim2.fromScale(1, 1)
+    valLayer.BackgroundColor3 = Color3.new(0, 0, 0)
+    valLayer.BorderSizePixel = 0
+    valLayer.ZIndex = 13
+    valLayer.Parent = square
+    local valGradient = Instance.new("UIGradient")
+    valGradient.Rotation = 90
+    valGradient.Transparency = NumberSequence.new(1, 0)
+    valGradient.Parent = valLayer
+
+    local squareMarker = Instance.new("Frame")
+    squareMarker.Name = "marker"
+    squareMarker.AnchorPoint = Vector2.new(0.5, 0.5)
+    squareMarker.Size = UDim2.fromOffset(7, 7)
+    squareMarker.BackgroundTransparency = 1
+    squareMarker.BorderSizePixel = 0
+    squareMarker.ZIndex = 14
+    squareMarker.Parent = square
+    local markerCorner = Instance.new("UICorner")
+    markerCorner.CornerRadius = UDim.new(1, 0)
+    markerCorner.Parent = squareMarker
+    local markerStroke = Instance.new("UIStroke")
+    markerStroke.Thickness = 1
+    markerStroke.Color = Color3.new(1, 1, 1)
+    markerStroke.Parent = squareMarker
+
+    local function makeStrip(name, y)
+        local strip = Instance.new("Frame")
+        strip.Name = name
+        strip.Position = UDim2.fromOffset(PAD, y)
+        strip.Size = UDim2.fromOffset(INNER, STRIP_H)
+        strip.BorderSizePixel = 0
+        strip.BackgroundColor3 = Color3.new(1, 1, 1)
+        strip.ZIndex = 11
+        strip.Parent = popup
+
+        local marker = Instance.new("Frame")
+        marker.Name = "marker"
+        marker.AnchorPoint = Vector2.new(0.5, 0.5)
+        marker.Position = UDim2.fromScale(0, 0.5)
+        marker.Size = UDim2.fromOffset(2, STRIP_H + 4)
+        marker.BackgroundColor3 = Color3.new(1, 1, 1)
+        marker.BorderSizePixel = 0
+        marker.ZIndex = 15
+        marker.Parent = strip
+        local outline = Instance.new("UIStroke")
+        outline.Thickness = 1
+        outline.Color = Color3.new(0, 0, 0)
+        outline.Transparency = 0.4
+        outline.Parent = marker
+
+        return strip, marker
+    end
+
+    local hueY = PAD + SQUARE_H + STRIP_GAP
+    local hueStrip, hueMarker = makeStrip("hue", hueY)
+    -- A UIGradient MULTIPLIES its element's colour, which is why the strip's own
+    -- BackgroundColor3 is white above.
+    local hueGradient = Instance.new("UIGradient")
+    hueGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 0, 0)),
+        ColorSequenceKeypoint.new(0.17, Color3.fromRGB(255, 255, 0)),
+        ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
+        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(0, 255, 255)),
+        ColorSequenceKeypoint.new(0.67, Color3.fromRGB(0, 0, 255)),
+        ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 0, 0)),
+    })
+    hueGradient.Parent = hueStrip
+
+    local alphaStrip, alphaMarker, alphaGradient
+    if hasAlpha then
+        alphaStrip, alphaMarker = makeStrip("alpha", hueY + STRIP_H + STRIP_GAP)
+
+        -- The chequerboard is built from plain Frames rather than a tiled image:
+        -- an image would mean uploading and moderating an asset for a 162x10
+        -- strip, and only half the cells need drawing over a flat base. It is
+        -- the honest way to show transparency and the only textured element in
+        -- an otherwise flat UI.
+        local base = Instance.new("Frame")
+        base.Name = "chequer"
+        base.Size = UDim2.fromScale(1, 1)
+        base.BackgroundColor3 = Color3.fromRGB(58, 63, 65)
+        base.BorderSizePixel = 0
+        base.ClipsDescendants = true
+        base.ZIndex = 11
+        base.Parent = alphaStrip
+
+        local cols = math.ceil(INNER / CHEQUER)
+        local rows = math.ceil(STRIP_H / CHEQUER)
+        for cx = 0, cols - 1 do
+            for cy = 0, rows - 1 do
+                if (cx + cy) % 2 == 0 then
+                    local cell = Instance.new("Frame")
+                    cell.Name = "cell"
+                    cell.Position = UDim2.fromOffset(cx * CHEQUER, cy * CHEQUER)
+                    cell.Size = UDim2.fromOffset(CHEQUER, CHEQUER)
+                    cell.BackgroundColor3 = Color3.fromRGB(34, 40, 42)
+                    cell.BorderSizePixel = 0
+                    cell.ZIndex = 11
+                    cell.Parent = base
+                end
+            end
+        end
+
+        local wash = Instance.new("Frame")
+        wash.Name = "wash"
+        wash.Size = UDim2.fromScale(1, 1)
+        wash.BackgroundColor3 = Color3.new(1, 1, 1)
+        wash.BorderSizePixel = 0
+        wash.ZIndex = 12
+        wash.Parent = alphaStrip
+        alphaGradient = Instance.new("UIGradient")
+        alphaGradient.Transparency = NumberSequence.new(1, 0)
+        alphaGradient.Parent = wash
+
+        alphaMarker.ZIndex = 15
+    end
+
+    --== the one text field, taking hex or RGB(A) ==--
+    local input = Instance.new("TextBox")
+    input.Name = "input"
+    input.Position = UDim2.fromOffset(PAD, popupHeight(hasAlpha) - PAD - FIELD_H)
+    input.Size = UDim2.fromOffset(INNER, FIELD_H)
+    input.BorderSizePixel = 0
+    input.Font = Enum.Font.Ubuntu
+    input.TextSize = 11
+    input.ClearTextOnFocus = false
+    input.Text = ""
+    input.ZIndex = 12
+    input.Parent = popup
+    theme:bind(input, "BackgroundColor3", "Field")
+    theme:bind(input, "TextColor3", "Text")
+
+    local inputStroke = Instance.new("UIStroke")
+    inputStroke.Thickness = 1
+    inputStroke.Parent = input
+    theme:bind(inputStroke, "Color", "FieldBorder")
+
+    local h0, s0, v0 = default:ToHSV()
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _theme = theme,
+        _swatch = swatch,
+        _popup = popup,
+        _square = square,
+        _squareMarker = squareMarker,
+        _hueMarker = hueMarker,
+        _alphaMarker = alphaMarker,
+        _alphaGradient = alphaGradient,
+        _input = input,
+        _hasAlpha = hasAlpha,
+        _editing = false,
+        _h = h0, _s = s0, _v = v0,
+        _a = hasAlpha and opts.Alpha or 1,
+        _label = opts.Name or "Colorpicker",
+        _callback = opts.Callback,
+        _listeners = {},
+    }, Colorpicker)
+
+    root:keep(swatch.Activated:Connect(function()
+        self:_toggle()
+    end))
+
+    -- Drag handling mirrors the slider's: press to jump, InputChanged to track,
+    -- InputEnded to release. One shared `self._dragging` target rather than
+    -- three flags, so two areas can never both think they are being dragged.
+    -- Kept on self, not as an upvalue, so _toggle's popup onClose (below) can
+    -- reach in and cancel a drag that outlives the popup that started it.
+    self._dragging = nil
+
+    local function applyFromMouse()
+        if self._dragging == nil then return end
+        local mx, my = root:mouseInGuiSpace()
+        if self._dragging == "square" then
+            local p, size = square.AbsolutePosition, square.AbsoluteSize
+            local fx = size.X > 0 and (mx - p.X) / size.X or 0
+            local fy = size.Y > 0 and (my - p.Y) / size.Y or 0
+            self._s = math.clamp(fx, 0, 1)
+            self._v = 1 - math.clamp(fy, 0, 1)
+        elseif self._dragging == "hue" then
+            local p, size = hueStrip.AbsolutePosition, hueStrip.AbsoluteSize
+            local fx = size.X > 0 and (mx - p.X) / size.X or 0
+            self._h = math.clamp(fx, 0, 1)
+        elseif self._dragging == "alpha" and alphaStrip then
+            local p, size = alphaStrip.AbsolutePosition, alphaStrip.AbsoluteSize
+            local fx = size.X > 0 and (mx - p.X) / size.X or 0
+            self._a = math.clamp(fx, 0, 1)
+        end
+        self:_paint()
+        self:_fire()
+    end
+
+    local function grab(target, instance)
+        root:keep(instance.InputBegan:Connect(function(input2)
+            if input2.UserInputType == Enum.UserInputType.MouseButton1 then
+                self._dragging = target
+                applyFromMouse()
+            end
+        end))
+    end
+
+    grab("square", square)
+    grab("hue", hueStrip)
+    if alphaStrip then grab("alpha", alphaStrip) end
+
+    root:keep(UserInputService.InputChanged:Connect(function(input2)
+        if self._dragging and input2.UserInputType == Enum.UserInputType.MouseMovement then
+            applyFromMouse()
+        end
+    end))
+
+    root:keep(UserInputService.InputEnded:Connect(function(input2)
+        if input2.UserInputType == Enum.UserInputType.MouseButton1 then
+            self._dragging = nil
+        end
+    end))
+
+    root:keep(input.Focused:Connect(function()
+        self._editing = true
+    end))
+
+    root:keep(input.FocusLost:Connect(function()
+        self._editing = false
+        local r, g, b, a = M.parseColor(input.Text)
+        if r == nil then
+            -- Unparseable input reverts, exactly as the slider does. This is
+            -- user input at runtime, not a programming mistake.
+            self:_paint()
+            return
+        end
+        local colour = Color3.fromRGB(r, g, b)
+        self._h, self._s, self._v = colour:ToHSV()
+        if self._hasAlpha then self._a = a end
+        self:_paint()
+        self:_fire()
+    end))
+
+    self:_paint()
+    return self
+end
+
+function Colorpicker:_colour()
+    return Color3.fromHSV(self._h, self._s, self._v)
+end
+
+function Colorpicker:_paint()
+    local colour = self:_colour()
+
+    self._swatch.BackgroundColor3 = colour
+    if self._hasAlpha then
+        self._swatch.BackgroundTransparency = 1 - self._a
+    end
+
+    self._square.BackgroundColor3 = Color3.fromHSV(self._h, 1, 1)
+    self._squareMarker.Position = UDim2.fromScale(self._s, 1 - self._v)
+    self._hueMarker.Position = UDim2.fromScale(self._h, 0.5)
+
+    if self._hasAlpha then
+        self._alphaMarker.Position = UDim2.fromScale(self._a, 0.5)
+        -- The wash fades from transparent to the CURRENT colour, so the strip
+        -- always previews the actual alpha range for what is selected.
+        self._alphaGradient.Color = ColorSequence.new(colour, colour)
+    end
+
+    -- Leave the text alone mid-edit, or a live drag would overwrite what is
+    -- being typed.
+    if not self._editing then
+        local r = math.floor(colour.R * 255 + 0.5)
+        local g = math.floor(colour.G * 255 + 0.5)
+        local b = math.floor(colour.B * 255 + 0.5)
+        self._input.Text = M.toHex(r, g, b, self._hasAlpha and self._a or nil)
+    end
+end
+
+function Colorpicker:_toggle()
+    local popup = self._root.popup
+    if popup:isOpen(self) then
+        popup:close()
+        return
+    end
+    -- The popup can close from things other than the swatch click that opened
+    -- it -- bindDismissal routes window drag/reflow straight to popup:close().
+    -- Without this, a hex edit left focused keeps engine-side focus while
+    -- hidden (FocusLost never fires, so _editing never clears and _paint stops
+    -- updating the hex text), and a drag left in progress keeps applying
+    -- against the hidden popup's stale geometry, still firing the callback.
+    popup:open(self, self._popup, self._swatch, function()
+        self._input:ReleaseFocus()
+        self._dragging = nil
+    end)
+end
+
+function Colorpicker:_fire()
+    local colour = self:_colour()
+    safecall.call(self._label, self._callback, colour, self._a)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], colour, self._a)
+    end
+end
+
+-- Returns the Color3 and, as a second value, the alpha. Two returns rather than
+-- a table: a consumer that only wants the colour writes `local c = cp:Get()`
+-- and is done.
+function Colorpicker:Get()
+    return self:_colour(), self._a
+end
+
+function Colorpicker:Set(colour, silent)
+    if typeof(colour) ~= "Color3" then return end
+    local h, s, v = colour:ToHSV()
+    local changed = h ~= self._h or s ~= self._s or v ~= self._v
+    self._h, self._s, self._v = h, s, v
+    self:_paint()
+    if silent or not changed then return end
+    self:_fire()
+end
+
+function Colorpicker:SetAlpha(a, silent)
+    if type(a) ~= "number" or not self._hasAlpha then return end
+    a = math.clamp(a, 0, 1)
+    local changed = a ~= self._a
+    self._a = a
+    self:_paint()
+    if silent or not changed then return end
+    self:_fire()
+end
+
+function Colorpicker:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Colorpicker:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
+__modules["widgets/dropdown"] = function(require)
+-- A field in the control slot that opens a list in the popup layer.
+--
+-- Single-select commits and closes on click. Multi-select ticks a 7px checkbox
+-- matching Toggle's -- so "this is a thing you tick" reads the same everywhere
+-- -- and stays open, because picking several is the point.
+
+local Field = require("core/field")
+local safecall = require("util/safecall")
+
+local M = {}
+
+local Dropdown = {}
+Dropdown.__index = Dropdown
+
+local ENTRY_HEIGHT = 16
+local MAX_VISIBLE = 8   -- past this the list scrolls; more than ~8 rows floating
+                        -- over the menu stops reading as a menu
+local WIDTH = 110       -- matches Row.CONTROL_WIDTH, so the popup lines up with
+                        -- the field it came from
+
+function M.new(root, row, opts)
+    local theme = root.theme
+
+    -- U+25BC. If this ever renders as a box in-game, fall back to "v" in
+    -- Enum.Font.Code -- M5 replaces it with a Lucide chevron either way.
+    local field = Field.new(root, row.control, { Glyph = "\u{25BC}" })
+
+    local popup = Instance.new("Frame")
+    popup.Name = "dropdown"
+    popup.Size = UDim2.fromOffset(WIDTH, ENTRY_HEIGHT)   -- real height set by _rebuild
+    popup.BorderSizePixel = 0
+    popup.Visible = false
+    popup.ZIndex = 10
+    popup.Parent = root.popupLayer
+    root:keep(popup)
+    theme:bind(popup, "BackgroundColor3", "Window")
+
+    local popupStroke = Instance.new("UIStroke")
+    popupStroke.Thickness = 1
+    popupStroke.Parent = popup
+    theme:bind(popupStroke, "Color", "Accent")
+
+    local list = Instance.new("ScrollingFrame")
+    list.Name = "list"
+    list.Size = UDim2.fromScale(1, 1)
+    list.BackgroundTransparency = 1
+    list.BorderSizePixel = 0
+    list.CanvasSize = UDim2.new()
+    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- There is no Enum.AutomaticCanvasSize.
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    list.ScrollBarThickness = 2
+    list.ScrollingDirection = Enum.ScrollingDirection.Y
+    list.ElasticBehavior = Enum.ElasticBehavior.Never
+    list.ZIndex = 11
+    list.Parent = popup
+    theme:bind(list, "ScrollBarImageColor3", "Accent")
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = list
+
+    local multi = opts.Multi == true
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _theme = theme,
+        _field = field,
+        _popup = popup,
+        _list = list,
+        _entries = {},
+        _options = opts.Options or {},
+        _multi = multi,
+        _selected = {},
+        _value = nil,
+        _label = opts.Name or "Dropdown",
+        _callback = opts.Callback,
+        _listeners = {},
+    }, Dropdown)
+
+    self:_rebuild()
+
+    root:keep(field.frame.Activated:Connect(function()
+        self:_toggle()
+    end))
+
+    -- A Default that is not in Options can only be a typo, and silently
+    -- selecting nothing hides it.
+    local default = opts.Default
+    if default ~= nil then
+        if multi then
+            if type(default) ~= "table" then
+                error(string.format(
+                    "chroma: multi dropdown '%s' needs an array Default, got %s",
+                    tostring(opts.Name), type(default)), 2)
+            end
+            for i = 1, #default do
+                if not self:_has(default[i]) then
+                    error(string.format(
+                        "chroma: dropdown '%s' Default '%s' is not in Options",
+                        tostring(opts.Name), tostring(default[i])), 2)
+                end
+            end
+        elseif not self:_has(default) then
+            error(string.format(
+                "chroma: dropdown '%s' Default '%s' is not in Options",
+                tostring(opts.Name), tostring(default)), 2)
+        end
+    end
+
+    self:Set(default, true)
+    return self
+end
+
+function Dropdown:_has(value)
+    for i = 1, #self._options do
+        if self._options[i] == value then return true end
+    end
+    return false
+end
+
+function Dropdown:_rebuild()
+    local theme = self._theme
+    for i = 1, #self._entries do
+        local e = self._entries[i]
+        -- Destroying an Instance does NOT remove its theme bindings: apply()
+        -- would keep writing to a destroyed object every frame, and the binding
+        -- list would grow without bound on every SetOptions call.
+        theme:unbind(e.button)
+        theme:unbind(e.label)
+        if e.box then
+            theme:unbind(e.box)
+            theme:unbind(e.boxStroke)
+        end
+        e.button:Destroy()
+    end
+    self._entries = {}
+
+    for i = 1, #self._options do
+        local text = self._options[i]
+
+        local button = Instance.new("TextButton")
+        button.Name = "entry"
+        button.Size = UDim2.new(1, 0, 0, ENTRY_HEIGHT)
+        button.BackgroundTransparency = 1
+        button.BorderSizePixel = 0
+        button.Text = ""
+        button.AutoButtonColor = false
+        button.LayoutOrder = i
+        button.ZIndex = 12
+        button.Parent = self._list
+
+        local box, boxStroke
+        local textX = 5
+        if self._multi then
+            box = Instance.new("Frame")
+            box.Name = "box"
+            box.AnchorPoint = Vector2.new(0, 0.5)
+            box.Position = UDim2.new(0, 5, 0.5, 0)
+            box.Size = UDim2.fromOffset(7, 7)
+            box.BorderSizePixel = 0
+            box.ZIndex = 13
+            box.Parent = button
+
+            boxStroke = Instance.new("UIStroke")
+            boxStroke.Thickness = 1
+            boxStroke.Parent = box
+
+            textX = 17   -- 5 padding + 7 box + 5 gap
+        end
+
+        local label = Instance.new("TextLabel")
+        label.Name = "text"
+        label.BackgroundTransparency = 1
+        label.Position = UDim2.fromOffset(textX, 0)
+        label.Size = UDim2.new(1, -(textX + 5), 1, 0)
+        label.Font = Enum.Font.Ubuntu
+        label.TextSize = 11
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.Text = tostring(text)
+        label.ZIndex = 13
+        label.Parent = button
+
+        self._entries[i] = {
+            button = button, label = label, box = box,
+            boxStroke = boxStroke, text = text,
+        }
+
+        -- Entries are destroyed and rebuilt by SetOptions, so their connections
+        -- must die with them. Parenting the connection to the button's own
+        -- lifetime (rather than root:keep) is what stops the junk list growing
+        -- every time a consumer refreshes the options.
+        button.Activated:Connect(function()
+            self:_choose(text)
+        end)
+    end
+
+    -- An explicit pixel height, not AutomaticSize: the popup manager reads
+    -- Size.Y.Offset to place the frame before it has ever rendered.
+    local visible = #self._options
+    if visible > MAX_VISIBLE then visible = MAX_VISIBLE end
+    if visible < 1 then visible = 1 end
+    self._popup.Size = UDim2.fromOffset(WIDTH, visible * ENTRY_HEIGHT)
+
+    self:_paint()
+end
+
+function Dropdown:_caption()
+    if not self._multi then
+        -- "none" rather than a blank field: an empty control reads as broken
+        -- rather than as an empty selection, and it matches what multi-select
+        -- already shows for the same state. An option literally named "none"
+        -- displays identically; that collision is accepted rather than escaped,
+        -- since Get() still returns the real value and nothing else here
+        -- reserves the string.
+        return self._value ~= nil and tostring(self._value) or "none"
+    end
+    local n, only = 0, nil
+    for i = 1, #self._options do
+        if self._selected[self._options[i]] then
+            n = n + 1
+            if only == nil then only = self._options[i] end
+        end
+    end
+    if n == 0 then return "none" end
+    -- One pick reads better as its own name than as "1 selected". Past that a
+    -- comma list truncates uselessly at 110px, so a count is the honest summary.
+    if n == 1 then return tostring(only) end
+    return tostring(n) .. " selected"
+end
+
+function Dropdown:_paint()
+    local theme = self._theme
+    for i = 1, #self._entries do
+        local e = self._entries[i]
+        if self._multi then
+            local on = self._selected[e.text] == true
+            theme:unbind(e.box)
+            theme:unbind(e.boxStroke)
+            theme:bind(e.box, "BackgroundColor3", on and "Accent" or "Field")
+            theme:bind(e.boxStroke, "Color", on and "Accent" or "FieldBorder")
+        else
+            local on = self._value == e.text
+            theme:unbind(e.button)
+            theme:unbind(e.label)
+            if on then
+                theme:bind(e.button, "BackgroundColor3", "Selection", "BackgroundTransparency")
+                theme:bind(e.label, "TextColor3", "Accent")
+            else
+                e.button.BackgroundTransparency = 1
+                theme:bind(e.label, "TextColor3", "Text")
+            end
+        end
+    end
+    self._field.label.Text = self:_caption()
+end
+
+function Dropdown:_toggle()
+    local popup = self._root.popup
+    if popup:isOpen(self) then
+        popup:close()
+        return
+    end
+    self._field.setActive(true)
+    popup:open(self, self._popup, self._field.frame, function()
+        self._field.setActive(false)
+    end)
+end
+
+function Dropdown:_choose(text)
+    if self._multi then
+        if self._selected[text] then
+            self._selected[text] = nil
+        else
+            self._selected[text] = true
+        end
+        self:_paint()
+        self:_fire()
+        -- Deliberately stays open.
+    else
+        self:Set(text)
+        self._root.popup:close()
+    end
+end
+
+function Dropdown:_fire()
+    local value = self:Get()
+    safecall.call(self._label, self._callback, value)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], value)
+    end
+end
+
+-- A string for single-select, a fresh array in Options order for multi.
+function Dropdown:Get()
+    if not self._multi then return self._value end
+    local out = {}
+    for i = 1, #self._options do
+        if self._selected[self._options[i]] then
+            table.insert(out, self._options[i])
+        end
+    end
+    return out
+end
+
+function Dropdown:Set(value, silent)
+    if self._multi then
+        local set = {}
+        if type(value) == "table" then
+            for i = 1, #value do set[value[i]] = true end
+        end
+        self._selected = set
+        self:_paint()
+        -- No change detection for multi: comparing two sets to decide whether to
+        -- fire costs more than the spurious callback it would save.
+        if silent then return end
+        self:_fire()
+        return
+    end
+
+    -- An unknown value at RUNTIME is not the same as a bad Default: a consumer
+    -- restoring a stale config should be ignored, not crashed.
+    if value ~= nil and not self:_has(value) then return end
+    local changed = value ~= self._value
+    self._value = value
+    self:_paint()
+    if silent or not changed then return end
+    self:_fire()
+end
+
+-- Replaces the contents, keeping any still-valid selection.
+function Dropdown:SetOptions(list)
+    self._options = list or {}
+    if self._multi then
+        local kept = {}
+        for i = 1, #self._options do
+            if self._selected[self._options[i]] then kept[self._options[i]] = true end
+        end
+        self._selected = kept
+    elseif self._value ~= nil and not self:_has(self._value) then
+        self._value = nil
+    end
+    self:_rebuild()
+end
+
+function Dropdown:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Dropdown:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
 __modules["widgets/init"] = function(require)
 -- The single registration point for widgets. container.lua generates its
 -- methods from this map, so it never learns what any individual widget is --
@@ -2517,7 +4139,371 @@ return {
     Separator = require("widgets/separator"),
     Toggle = require("widgets/toggle"),
     Slider = require("widgets/slider"),
+    Dropdown = require("widgets/dropdown"),
+    Button = require("widgets/button"),
+    TextBox = require("widgets/textbox"),
+    Keybind = require("widgets/keybind"),
+    Colorpicker = require("widgets/colorpicker"),
+    ListBox = require("widgets/listbox"),
 }
+end
+
+__modules["widgets/keybind"] = function(require)
+-- Keybind: the pure display-name mapping, plus (from the next task) capture,
+-- the mode menu, and IsHeld.
+--
+-- formatKey is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- no compound assignment, no bitwise ops, no goto. That also means NO Enum
+-- values at module scope -- the harness has no `Enum` global.
+
+local M = {}
+
+-- The only bindable mouse inputs there are. Roblox delivers no event at all for
+-- side buttons 4 and 5, and Enum.KeyCode.MouseBackButton is a dead legacy entry
+-- InputBegan never fires. Proven in-game with a logger; see the M3 spec.
+local MOUSE = {
+    MouseButton1 = "MOUSE1",
+    MouseButton2 = "MOUSE2",
+    MouseButton3 = "MOUSE3",
+}
+
+-- Anything that would overflow the field at 11px, or reads badly upper-cased.
+local SHORT = {
+    LeftShift = "LSHIFT",   RightShift = "RSHIFT",
+    LeftControl = "LCTRL",  RightControl = "RCTRL",
+    LeftAlt = "LALT",       RightAlt = "RALT",
+    LeftSuper = "LWIN",     RightSuper = "RWIN",
+    CapsLock = "CAPS",      Backspace = "BACK",
+    Return = "ENTER",       Escape = "ESC",
+    Delete = "DEL",         PageUp = "PGUP",
+    PageDown = "PGDN",      Space = "SPACE",
+}
+
+-- Takes NAMES rather than EnumItems so it can be tested without a Roblox
+-- environment. The caller unwraps .Name.
+function M.formatKey(inputTypeName, keyCodeName)
+    if inputTypeName ~= nil and MOUSE[inputTypeName] ~= nil then
+        return MOUSE[inputTypeName]
+    end
+    if keyCodeName == nil or keyCodeName == "" or keyCodeName == "Unknown" then
+        return "NONE"
+    end
+    if SHORT[keyCodeName] ~= nil then
+        return SHORT[keyCodeName]
+    end
+    return string.upper(keyCodeName)
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local Field = require("core/field")
+local safecall = require("util/safecall")
+
+-- Resolved lazily: a module-scope game:GetService() executes on require, and
+-- the harness requires this file to reach formatKey.
+local UserInputService
+
+local Keybind = {}
+Keybind.__index = Keybind
+
+local MODES = { "Always", "Hold", "Toggle" }
+local MODE_WIDTH = 72
+local MODE_HEIGHT = 16
+
+local function isMouseBind(bind)
+    return typeof(bind) == "EnumItem" and bind.EnumType == Enum.UserInputType
+end
+
+local function describe(bind)
+    if bind == nil then return M.formatKey(nil, nil) end
+    if isMouseBind(bind) then return M.formatKey(bind.Name, nil) end
+    return M.formatKey(nil, bind.Name)
+end
+
+function M.new(root, row, opts)
+    UserInputService = UserInputService or game:GetService("UserInputService")
+
+    local theme = root.theme
+    local field = Field.new(root, row.control, {})
+    -- Right-aligned: a keybind is read as a value, like the slider's number,
+    -- not as a caption.
+    field.label.TextXAlignment = Enum.TextXAlignment.Right
+    field.label.Size = UDim2.new(1, -8, 1, 0)
+
+    --== the right-click mode menu, in the popup layer ==--
+    local menu = Instance.new("Frame")
+    menu.Name = "keybindModes"
+    menu.Size = UDim2.fromOffset(MODE_WIDTH, MODE_HEIGHT * #MODES)
+    menu.BorderSizePixel = 0
+    menu.Visible = false
+    menu.ZIndex = 10
+    menu.Parent = root.popupLayer
+    root:keep(menu)
+    theme:bind(menu, "BackgroundColor3", "Window")
+
+    local menuStroke = Instance.new("UIStroke")
+    menuStroke.Thickness = 1
+    menuStroke.Parent = menu
+    theme:bind(menuStroke, "Color", "Accent")
+
+    local menuLayout = Instance.new("UIListLayout")
+    menuLayout.FillDirection = Enum.FillDirection.Vertical
+    menuLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    menuLayout.Parent = menu
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _theme = theme,
+        _field = field,
+        _menu = menu,
+        _modeButtons = {},
+        _bind = nil,
+        _mode = "Always",
+        _down = false,
+        _toggled = false,
+        _capturing = false,
+        _label = opts.Name or "Keybind",
+        _callback = opts.Callback,
+        _listeners = {},
+    }, Keybind)
+
+    for i = 1, #MODES do
+        local mode = MODES[i]
+        local button = Instance.new("TextButton")
+        button.Name = "mode_" .. mode
+        button.Size = UDim2.new(1, 0, 0, MODE_HEIGHT)
+        button.BackgroundTransparency = 1
+        button.BorderSizePixel = 0
+        button.Font = Enum.Font.Ubuntu
+        button.TextSize = 11
+        button.Text = mode
+        button.AutoButtonColor = false
+        button.LayoutOrder = i
+        button.ZIndex = 11
+        button.Parent = menu
+
+        self._modeButtons[mode] = button
+
+        root:keep(button.Activated:Connect(function()
+            self:SetMode(mode)
+            root.popup:close()
+        end))
+    end
+
+    -- Activated fires on button RELEASE, and that matters: starting capture from
+    -- InputBegan would let the very same MouseButton1 press reach the capture
+    -- handler below and instantly bind MOUSE1.
+    -- Binding a mouse button ON the field consumes the press DOWN in _capture,
+    -- but its RELEASE still arrives as a click event on the field -- Activated
+    -- for button 1, MouseButton2Click for button 2. Unguarded, binding MOUSE1
+    -- flashed the bind and went straight back to listening, and binding MOUSE2
+    -- popped the mode menu open. One press produces only one of the two events,
+    -- so a single one-shot flag shared by both handlers is enough.
+    local function swallowed()
+        if self._swallowActivated then
+            self._swallowActivated = false
+            return true
+        end
+        return false
+    end
+
+    root:keep(field.frame.Activated:Connect(function()
+        if swallowed() then return end
+        self:_beginCapture()
+    end))
+
+    root:keep(field.frame.MouseButton2Click:Connect(function()
+        if swallowed() then return end
+        self:_openModeMenu()
+    end))
+
+    -- ONE InputBegan connection serving both capture and hold/toggle tracking.
+    root:keep(UserInputService.InputBegan:Connect(function(input)
+        if self._capturing then
+            self:_capture(input)
+            return
+        end
+        if not self:_matches(input) then return end
+        self._down = true
+        if self._mode == "Toggle" then
+            self._toggled = not self._toggled
+        end
+    end))
+
+    root:keep(UserInputService.InputEnded:Connect(function(input)
+        if self:_matches(input) then
+            self._down = false
+        end
+    end))
+
+    self:SetMode(opts.Mode or "Always")
+    self:Set(opts.Default, true)
+    return self
+end
+
+function Keybind:_matches(input)
+    local bind = self._bind
+    if bind == nil then return false end
+    if isMouseBind(bind) then
+        return input.UserInputType == bind
+    end
+    return input.UserInputType == Enum.UserInputType.Keyboard
+        and input.KeyCode == bind
+end
+
+function Keybind:_beginCapture()
+    if self._capturing then return end
+    self._capturing = true
+    -- A GLOBAL lock, not just a local flag: the window's toggle handler reads
+    -- it. Without this, binding the menu's own toggle key would bind the key
+    -- and close the menu in one press. The same applies to any key the game
+    -- sinks, since the toggle deliberately ignores gameProcessedEvent.
+    self._root.capturing = true
+    self._field.setActive(true)
+    self._field.label.Text = "..."
+end
+
+function Keybind:_endCapture()
+    self._capturing = false
+    self._field.setActive(false)
+    self:_paint()
+    -- Release the global lock a frame later. The window's toggle handler is a
+    -- separate InputBegan connection and Roblox guarantees no ordering between
+    -- them, so clearing it inside the same event could still let the key that
+    -- was just bound close the menu.
+    task.defer(function()
+        if not self._root:isAlive() then return end
+        self._root.capturing = false
+    end)
+end
+
+function Keybind:_capture(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if input.KeyCode == Enum.KeyCode.Escape then
+            self:Set(nil)   -- Escape clears the bind
+        else
+            self:Set(input.KeyCode)
+        end
+        self:_endCapture()
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.MouseButton2
+        or input.UserInputType == Enum.UserInputType.MouseButton3 then
+        -- A mouse button binds only when the click lands ON the field. Anywhere
+        -- else is "click away to cancel", which is the other half of the spec
+        -- and would otherwise be unreachable for MOUSE1.
+        local mx, my = self._root:mouseInGuiSpace()
+        local p, s = self._field.frame.AbsolutePosition, self._field.frame.AbsoluteSize
+        if mx >= p.X and mx <= p.X + s.X and my >= p.Y and my <= p.Y + s.Y then
+            self:Set(input.UserInputType)
+            -- This press will still deliver an Activated on release; that must
+            -- not restart capture. See the Activated handler in M.new.
+            self._swallowActivated = true
+        end
+        self:_endCapture()
+        return
+    end
+
+    -- Anything else -- a wheel tick, a gamepad button, a touch -- matches
+    -- neither branch above. Treat it as a cancel rather than falling through:
+    -- an unhandled input type must not be able to leave _capturing (and the
+    -- GLOBAL root.capturing lock the window's toggle handler reads) stuck on,
+    -- since that failure is silent and takes out the toggle key for the rest
+    -- of the session. InputBegan never fires for mouse movement (that's
+    -- InputChanged), so this cannot cancel capture on a pointer twitch.
+    self:_endCapture()
+end
+
+function Keybind:_openModeMenu()
+    local popup = self._root.popup
+    if popup:isOpen(self) then
+        popup:close()
+        return
+    end
+    self:_paintModes()
+    popup:open(self, self._menu, self._field.frame)
+end
+
+function Keybind:_paintModes()
+    for i = 1, #MODES do
+        local mode = MODES[i]
+        local button = self._modeButtons[mode]
+        self._theme:unbind(button)
+        if mode == self._mode then
+            self._theme:bind(button, "BackgroundColor3", "Selection", "BackgroundTransparency")
+            self._theme:bind(button, "TextColor3", "Accent")
+        else
+            button.BackgroundTransparency = 1
+            self._theme:bind(button, "TextColor3", "Text")
+        end
+    end
+end
+
+function Keybind:_paint()
+    self._field.label.Text = describe(self._bind)
+    self._theme:unbind(self._field.label)
+    self._theme:bind(self._field.label, "TextColor3",
+        self._bind == nil and "TextDim" or "Text")
+end
+
+function Keybind:_fire()
+    safecall.call(self._label, self._callback, self._bind, self._mode)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], self._bind, self._mode)
+    end
+end
+
+function Keybind:Get()
+    return self._bind
+end
+
+function Keybind:Set(bind, silent)
+    local changed = bind ~= self._bind
+    self._bind = bind
+    -- A cleared or replaced bind must not leave a Hold reading as held or a
+    -- Toggle latched on.
+    self._down = false
+    self._toggled = false
+    self:_paint()
+    if silent or not changed then return end
+    self:_fire()
+end
+
+function Keybind:GetMode()
+    return self._mode
+end
+
+function Keybind:SetMode(mode)
+    if mode ~= "Always" and mode ~= "Hold" and mode ~= "Toggle" then
+        error("chroma: keybind Mode must be Always, Hold or Toggle, got "
+            .. tostring(mode), 2)
+    end
+    self._mode = mode
+    self._toggled = false
+    self:_paintModes()
+end
+
+-- The EXTENSION to the shared four-method contract, and the only one in the
+-- library. A consumer's aimbot reads this every frame, not Get.
+function Keybind:IsHeld()
+    if self._bind == nil then return false end
+    if self._mode == "Always" then return true end
+    if self._mode == "Toggle" then return self._toggled end
+    return self._down
+end
+
+function Keybind:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Keybind:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
 end
 
 __modules["widgets/label"] = function(require)
@@ -2561,6 +4547,201 @@ function Label:OnChanged()
 end
 
 function Label:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
+__modules["widgets/listbox"] = function(require)
+-- An inline bordered box of rows with one selected, scrolling past `Rows`.
+--
+-- Inline rather than a popup, which is the whole difference from Dropdown: this
+-- is the presets box from the gamesense reference, something you look at while
+-- doing something else, not something you open and dismiss. M4's config manager
+-- is its first real consumer.
+
+local safecall = require("util/safecall")
+
+local M = {}
+
+-- No control slot: a list of names needs the full width.
+M.FullWidth = true
+
+local ListBox = {}
+ListBox.__index = ListBox
+
+local ITEM_HEIGHT = 15
+local DEFAULT_ROWS = 6
+
+function M.new(root, row, opts)
+    local theme = root.theme
+
+    row.label.Text = ""
+
+    local rows = opts.Rows or DEFAULT_ROWS
+    if type(rows) ~= "number" or rows < 1 then rows = DEFAULT_ROWS end
+    rows = math.floor(rows)
+
+    -- The row's height is the box plus a 1px margin each side, so the box's
+    -- outward-drawing stroke is not clipped by the container's padding.
+    local boxHeight = rows * ITEM_HEIGHT
+    row.setHeight(boxHeight + 2)
+
+    local box = Instance.new("ScrollingFrame")
+    box.Name = "listbox"
+    box.Position = UDim2.fromOffset(0, 1)
+    box.Size = UDim2.new(1, 0, 0, boxHeight)
+    box.BorderSizePixel = 0
+    box.CanvasSize = UDim2.new()
+    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    box.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    box.ScrollBarThickness = 2
+    box.ScrollingDirection = Enum.ScrollingDirection.Y
+    box.ElasticBehavior = Enum.ElasticBehavior.Never
+    -- Above the row's own hit button (ZIndex 2), or the row swallows clicks and
+    -- scrolling both.
+    box.ZIndex = 3
+    box.Parent = row.frame
+    theme:bind(box, "BackgroundColor3", "Field")
+    theme:bind(box, "ScrollBarImageColor3", "Accent")
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1
+    stroke.Parent = box
+    theme:bind(stroke, "Color", "FieldBorder")
+
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Parent = box
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _theme = theme,
+        _box = box,
+        _entries = {},
+        _items = opts.Items or {},
+        _value = nil,
+        _label = opts.Name or "ListBox",
+        _callback = opts.Callback,
+        _listeners = {},
+    }, ListBox)
+
+    self:_rebuild()
+    self:Set(opts.Default, true)
+    return self
+end
+
+function ListBox:_has(value)
+    for i = 1, #self._items do
+        if self._items[i] == value then return true end
+    end
+    return false
+end
+
+function ListBox:_rebuild()
+    local theme = self._theme
+    for i = 1, #self._entries do
+        local e = self._entries[i]
+        -- Destroying an Instance does NOT remove its theme bindings: apply()
+        -- would keep writing to a destroyed object every frame, and the binding
+        -- list would grow without bound on every SetItems call.
+        theme:unbind(e.button)
+        theme:unbind(e.label)
+        e.button:Destroy()
+    end
+    self._entries = {}
+
+    for i = 1, #self._items do
+        local text = self._items[i]
+
+        local button = Instance.new("TextButton")
+        button.Name = "item"
+        button.Size = UDim2.new(1, 0, 0, ITEM_HEIGHT)
+        button.BackgroundTransparency = 1
+        button.BorderSizePixel = 0
+        button.Text = ""
+        button.AutoButtonColor = false
+        button.LayoutOrder = i
+        button.ZIndex = 4
+        button.Parent = self._box
+
+        local label = Instance.new("TextLabel")
+        label.Name = "text"
+        label.BackgroundTransparency = 1
+        label.Position = UDim2.fromOffset(5, 0)
+        label.Size = UDim2.new(1, -10, 1, 0)
+        label.Font = Enum.Font.Ubuntu
+        label.TextSize = 11
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.Text = tostring(text)
+        label.ZIndex = 5
+        label.Parent = button
+
+        self._entries[i] = { button = button, label = label, text = text }
+
+        -- Tied to the button's own lifetime rather than root:keep: SetItems
+        -- destroys and rebuilds these, and a keep per rebuild would grow the
+        -- teardown list every time a consumer refreshes the list.
+        button.Activated:Connect(function()
+            self:Set(text)
+        end)
+    end
+
+    self:_paint()
+end
+
+function ListBox:_paint()
+    local theme = self._theme
+    for i = 1, #self._entries do
+        local e = self._entries[i]
+        theme:unbind(e.button)
+        theme:unbind(e.label)
+        if e.text == self._value then
+            theme:bind(e.button, "BackgroundColor3", "Selection", "BackgroundTransparency")
+            theme:bind(e.label, "TextColor3", "Accent")
+        else
+            e.button.BackgroundTransparency = 1
+            theme:bind(e.label, "TextColor3", "Text")
+        end
+    end
+end
+
+function ListBox:Get()
+    return self._value
+end
+
+function ListBox:Set(value, silent)
+    -- An unknown value is ignored rather than erroring: the usual caller is a
+    -- config restore holding a preset that has since been deleted.
+    if value ~= nil and not self:_has(value) then return end
+    local changed = value ~= self._value
+    self._value = value
+    self:_paint()
+    if silent or not changed then return end
+    safecall.call(self._label, self._callback, value)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], value)
+    end
+end
+
+-- Replaces the contents, keeping the selection if it survived.
+function ListBox:SetItems(list)
+    self._items = list or {}
+    if self._value ~= nil and not self:_has(self._value) then
+        self._value = nil
+    end
+    self:_rebuild()
+end
+
+function ListBox:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function ListBox:SetVisible(visible)
     self._row.frame.Visible = visible
 end
 
@@ -2832,13 +5013,25 @@ function M.new(root, row, opts)
         value.SelectionStart = 1
     end))
 
-    root:keep(value.FocusLost:Connect(function()
+    root:keep(value.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
         self._editing = false
         value.TextEditable = false
         theme:unbind(value)
         theme:bind(value, "TextColor3", "TextDim")
-        -- Escape and clicking away both arrive here too, so a non-number is
-        -- simply a cancel: Set re-renders the current value, formatted.
+
+        -- Escape must cancel, and it has to be handled explicitly. Roblox does
+        -- NOT restore a TextBox's previous text before releasing focus --
+        -- measured in-game: at FocusLost the box still held the typed value
+        -- with cause=Escape. Relying on that would silently COMMIT the edit,
+        -- which is the opposite of cancelling.
+        if inputThatCausedFocusLoss ~= nil
+            and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then
+            self:Set(self._current, true)
+            return
+        end
+
+        -- Clicking away still commits, and a non-number is a cancel: Set
+        -- re-renders the current value, formatted.
         local typed = tonumber(value.Text)
         if typed then self:Set(typed) else self:Set(self._current, true) end
     end))
@@ -2899,6 +5092,143 @@ function Slider:OnChanged(fn)
 end
 
 function Slider:SetVisible(visible)
+    self._row.frame.Visible = visible
+end
+
+return M
+end
+
+__modules["widgets/textbox"] = function(require)
+-- A click-to-edit text field in the control slot.
+--
+-- Non-editable until clicked, then selects its whole contents: the proven
+-- pattern from the slider's value field, where nothing moves between the two
+-- states and typing replaces rather than appends.
+
+local Field = require("core/field")
+local safecall = require("util/safecall")
+
+local M = {}
+
+local TextBox = {}
+TextBox.__index = TextBox
+
+function M.new(root, row, opts)
+    local field = Field.new(root, row.control, {
+        Editable = true,
+        Placeholder = opts.Placeholder,
+    })
+    local box = field.label
+
+    local self = setmetatable({
+        _root = root,
+        _row = row,
+        _field = field,
+        _box = box,
+        _numeric = opts.Numeric == true,
+        _value = "",
+        _editing = false,
+        _editStart = "",
+        _label = opts.Name or "TextBox",
+        _callback = opts.Callback,
+        _listeners = {},
+    }, TextBox)
+
+    local function beginEdit()
+        if self._editing then return end
+        self._editing = true
+        -- Captured so FocusLost can restore it explicitly on Escape, rather
+        -- than trusting Roblox to have already put it back in box.Text.
+        self._editStart = self._value
+        box.TextEditable = true
+        field.setActive(true)
+        box:CaptureFocus()
+        -- Select everything: the common case is replacing the value, not
+        -- editing one character of it.
+        box.CursorPosition = #box.Text + 1
+        box.SelectionStart = 1
+    end
+
+    -- Listen on the BOX, not only the field around it. A TextBox takes focus
+    -- natively when clicked even while TextEditable is false, and that click
+    -- never reaches the parent button -- so the field's Activated never fired,
+    -- TextEditable stayed false, and the box sat focused and selectable while
+    -- silently swallowing every keystroke. Confirmed in-game: the keys arrived
+    -- with gameProcessed true and the focused box was correct, but Text never
+    -- changed. This is why the slider's value field listens on its own
+    -- InputBegan rather than on a parent.
+    root:keep(box.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            beginEdit()
+        end
+    end))
+
+    -- The frame too, so clicking the padding either side of the text works.
+    root:keep(field.frame.Activated:Connect(beginEdit))
+
+    root:keep(box.FocusLost:Connect(function(enterPressed, inputThatCausedFocusLoss)
+        self._editing = false
+        box.TextEditable = false
+        field.setActive(false)
+
+        -- Whether Roblox restores the pre-edit text on Escape is not
+        -- documented and not something to bet a revert on -- if it doesn't,
+        -- this would silently COMMIT the edit instead, the opposite of the
+        -- spec. Escape is therefore handled explicitly using the value
+        -- captured when editing began. inputThatCausedFocusLoss may be nil
+        -- (e.g. focus lost by clicking elsewhere), so it is guarded before
+        -- indexing.
+        if inputThatCausedFocusLoss ~= nil
+            and inputThatCausedFocusLoss.KeyCode == Enum.KeyCode.Escape then
+            box.Text = self._editStart
+            return
+        end
+
+        local text = box.Text
+        if self._numeric and tonumber(text) == nil then
+            -- Rejected on COMMIT rather than by filtering keystrokes: filtering
+            -- fights paste and IME, and a half-typed "-" or "1e" is legitimate
+            -- mid-edit. Unparseable input is user error at runtime, so it
+            -- reverts silently rather than erroring.
+            box.Text = self._value
+            return
+        end
+        self:Set(text)
+    end))
+
+    self:Set(opts.Default or "", true)
+    return self
+end
+
+-- A number when Numeric is set -- that is what the flag is for -- and the raw
+-- string otherwise.
+function TextBox:Get()
+    if self._numeric then return tonumber(self._value) end
+    return self._value
+end
+
+function TextBox:Set(value, silent)
+    local text = tostring(value)
+    local changed = text ~= self._value
+    self._value = text
+    -- Leave the text alone mid-edit, or a programmatic Set would overwrite what
+    -- is being typed.
+    if not self._editing then
+        self._box.Text = text
+    end
+    if silent or not changed then return end
+    local out = self:Get()
+    safecall.call(self._label, self._callback, out)
+    for i = 1, #self._listeners do
+        safecall.call(self._label, self._listeners[i], out)
+    end
+end
+
+function TextBox:OnChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function TextBox:SetVisible(visible)
     self._row.frame.Visible = visible
 end
 

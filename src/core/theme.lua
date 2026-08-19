@@ -66,6 +66,7 @@ function Theme.new(opts)
         _accentSpeed = opts.AccentSpeed or 0.15,
         _accentSat = opts.AccentSaturation or 0.86,
         _accentVal = opts.AccentValue or 0.72,
+        _gradient = opts.Gradient ~= false,
     }, Theme)
 
     for key, value in pairs(TRANSPARENCY) do
@@ -94,6 +95,25 @@ end
 
 -- Mutates the stored palette only; existing bindings keep their old colour
 -- until the caller calls apply().
+-- Whether the outline runs a two-tone hue-shifted gradient or a single flat
+-- colour. Independent of whether the accent animates: "RGB" decides whether the
+-- hue moves over time, this decides whether the gradient's two ends differ at
+-- any given instant.
+function Theme:setGradient(enabled)
+    self._gradient = enabled ~= false
+    self:_recompute(self._clock or 0)
+end
+
+function Theme:isGradient()
+    return self._gradient
+end
+
+function Theme:setAccentSpeed(speed)
+    if type(speed) ~= "number" then return end
+    self._accentSpeed = speed
+    self:_recompute(self._clock or 0)
+end
+
 function Theme:setPalette(overrides)
     for key, value in pairs(overrides) do
         self._stored[key] = value
@@ -122,7 +142,14 @@ function Theme:_recompute(clock)
     d.Selection = accent
     d.Glow = accent
     d.HairA = accent
-    d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
+    -- HairA and HairB are the two ends of the gradient on the window outline
+    -- and the title bar's hairlines. Equal ends collapse it to a flat colour,
+    -- which is the whole difference between the Static and Gradient modes.
+    if self._gradient then
+        d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
+    else
+        d.HairB = accent
+    end
 end
 
 -- Advance the clock. Cheap when the accent is static: recompute is skipped.

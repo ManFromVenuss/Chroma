@@ -7,6 +7,8 @@ local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Popup = require("core/popup")
+local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() executes on require.
@@ -35,6 +37,7 @@ function M.new(root, opts)
         _theme = theme,
         _fullSize = size,
         _minSize = Vector2.new(MIN_WIDTH, MIN_HEIGHT),
+        _layoutListeners = {},
     }, Window)
 
     -- Frame keeps AnchorPoint (0,0) forever: it is the drag origin AND the
@@ -196,6 +199,47 @@ function M.new(root, opts)
     railPad.PaddingTop = UDim.new(0, 6)
     railPad.Parent = rail
 
+    -- A bottom strip for pinned entries. It is a sibling of the rail, NOT a
+    -- child of it, and that is the whole point: a UIListLayout arranges every
+    -- child of its parent, so parenting this to the rail made the list lay it
+    -- out as an ordinary item and the gear appeared at the TOP. Anchored over
+    -- the rail's own footprint instead, it is outside that layout's reach.
+    --
+    -- That footprint is shared implicitly: this lines up with the rail only
+    -- because the rail sits at (0, 0) and spans the body's full height. Give
+    -- the rail an offset and this drifts silently.
+    local railBottom = Instance.new("Frame")
+    railBottom.Name = "railBottom"
+    railBottom.AnchorPoint = Vector2.new(0, 1)
+    railBottom.Position = UDim2.new(0, 0, 1, 0)
+    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 36)
+    railBottom.BackgroundTransparency = 1
+    railBottom.BorderSizePixel = 0
+    railBottom.ZIndex = 6
+    railBottom.Parent = body
+    self._railBottom = railBottom
+
+    local railBottomLayout = Instance.new("UIListLayout")
+    railBottomLayout.FillDirection = Enum.FillDirection.Vertical
+    railBottomLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+    railBottomLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    railBottomLayout.Padding = UDim.new(0, 5)
+    railBottomLayout.Parent = railBottom
+
+    -- A UIListLayout arranges EVERY child, so the rule is part of the list
+    -- rather than positioned over it -- the same trap that made the sub-tab
+    -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
+    -- buttons, which is what "separated from the pages" means visually.
+    local railRule = Instance.new("Frame")
+    railRule.Name = "rule"
+    railRule.Size = UDim2.new(1, -12, 0, 1)
+    railRule.BorderSizePixel = 0
+    railRule.LayoutOrder = 0
+    railRule.ZIndex = 6
+    railRule.Parent = railBottom
+    theme:bind(railRule, "BackgroundColor3", "ContainerBorder")
+
     -- Everything right of the rail. Pages fill this and show one at a time.
     local pageArea = Instance.new("Frame")
     pageArea.Name = "pages"
@@ -209,13 +253,16 @@ function M.new(root, opts)
     self._pages = {}
     self._activePage = nil
 
-    -- The tooltip manager is owned by the window and reached through root, so
-    -- row.lua can attach to it without being handed one explicitly.
+    -- The tooltip and popup managers are owned by the window and reached through
+    -- root, so row.lua and every widget can use them without being handed one.
     root.tooltip = Tooltip.new(root)
+    root.popup = Popup.new(root)
+    root.popup:bindDismissal(self)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)
         frame.Position = UDim2.fromOffset(start.X + delta.X, start.Y + delta.Y)
+        self:_layoutChanged()
     end, function()
         -- AbsolutePosition is screen space; Position is parent space. With
         -- IgnoreGuiInset = true the window layer sits `inset` above the
@@ -292,11 +339,18 @@ function M.new(root, opts)
     --== toggle key ==--
     -- gameProcessedEvent is IGNORED by default: games sink keys, and O is sunk
     -- in one of the target games. RespectGameProcessed opts into politeness.
-    local toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
+    self._toggleKey = opts.ToggleKey or Enum.KeyCode.Insert
     local respect = opts.RespectGameProcessed == true
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if respect and gameProcessed then return end
-        if input.KeyCode == toggleKey then
+        -- A Keybind capture owns the keyboard while it is open, or binding the
+        -- toggle key would bind it AND close the menu in one press.
+        if root.capturing then return end
+        local key = self._toggleKey
+        if key == nil then return end
+        if key.EnumType == Enum.UserInputType then
+            if input.UserInputType == key then self:toggle() end
+        elseif input.KeyCode == key then
             self:toggle()
         end
     end))
@@ -313,11 +367,31 @@ function M.new(root, opts)
         self._bodyStrokeGradient.Color = hairColor
     end)
 
+    -- Built before any consumer page exists, which is fine because a pinned page
+    -- never auto-activates. Opting out is one flag rather than a separate
+    -- constructor, since a consumer who does not want it is the rare case.
+    if opts.Settings ~= false then
+        self._settingsPage = Settings.build(root, self)
+    end
+
     self:setSize(size.X, size.Y)
     self._anim:_snap(false)
     self:open()
 
     return self
+end
+
+-- Anything that reflows or replaces the view. The popup manager is the only
+-- subscriber today; keeping it a list means the next one does not have to
+-- rewrite this.
+function Window:onLayoutChanged(fn)
+    table.insert(self._layoutListeners, fn)
+end
+
+function Window:_layoutChanged()
+    for i = 1, #self._layoutListeners do
+        self._layoutListeners[i]()
+    end
 end
 
 function Window:_makeDragHandle(handle, onMove, readStart)
@@ -358,15 +432,19 @@ function Window:setSize(width, height)
             self._pages[i]:relayout()
         end
     end
+    self:_layoutChanged()
 end
 
 function Window:Page(opts)
     local page = Page.new(self._root, self, opts or {})
     table.insert(self._pages, page)
-    if not self._activePage then
+    -- A pinned page must never become the default view. The settings page is
+    -- built before any consumer page exists, so plain "first page wins" would
+    -- open the menu on Settings every single time.
+    if not self._activePage and not page.pinned then
         self:setActivePage(page)
     else
-        page:setActive(false)
+        page:setActive(page == self._activePage)
     end
     return page
 end
@@ -377,6 +455,7 @@ function Window:setActivePage(page)
         self._pages[i]:setActive(self._pages[i] == page)
     end
     page:relayout()
+    self:_layoutChanged()
 end
 
 function Window:getActivePage()
@@ -390,6 +469,7 @@ function Window:open()
 end
 
 function Window:close()
+    self:_layoutChanged()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
     -- Stars keep no state worth preserving, so pausing while hidden is free.
@@ -418,6 +498,34 @@ end
 function Window:setAccent(accent)
     self._theme:setAccent(accent)
     self._theme:apply()
+end
+
+-- Accepts a KeyCode or a bindable UserInputType, or nil for no toggle at all.
+-- The settings page's Keybind writes here.
+function Window:setToggleKey(key)
+    self._toggleKey = key
+end
+
+function Window:setAnimations(on)
+    self._animate = on ~= false
+end
+
+function Window:setGradient(enabled)
+    self._theme:setGradient(enabled)
+    self._theme:apply()
+end
+
+function Window:setAccentSpeed(speed)
+    self._theme:setAccentSpeed(speed)
+    self._theme:apply()
+end
+
+function Window:setCursor(opts)
+    self._cursor:setConfig(opts)
+end
+
+function Window:setParticleCount(count)
+    self._backdrop:setCount(count)
 end
 
 M.Window = Window

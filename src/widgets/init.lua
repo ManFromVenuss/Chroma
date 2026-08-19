@@ -7,4 +7,10 @@ return {
     Separator = require("widgets/separator"),
     Toggle = require("widgets/toggle"),
     Slider = require("widgets/slider"),
+    Dropdown = require("widgets/dropdown"),
+    Button = require("widgets/button"),
+    TextBox = require("widgets/textbox"),
+    Keybind = require("widgets/keybind"),
+    Colorpicker = require("widgets/colorpicker"),
+    ListBox = require("widgets/listbox"),
 }

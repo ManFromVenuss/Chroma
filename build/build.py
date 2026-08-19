@@ -83,6 +83,15 @@ def main():
         dest = WORKSPACE / "chroma_dist.lua"
         shutil.copy2(out, dest)
         print(f"installed to {dest}")
+
+        # The dev harness ships alongside the bundle. Copying only the bundle
+        # left a stale harness in the workspace for a whole milestone, and the
+        # symptom -- a page simply missing in-game -- looked like a library bug
+        # rather than an out-of-date file.
+        harness = REPO / "dev" / "harness.lua"
+        harness_dest = WORKSPACE / "chroma_dev.lua"
+        shutil.copy2(harness, harness_dest)
+        print(f"installed to {harness_dest}")
     return 0
 
 

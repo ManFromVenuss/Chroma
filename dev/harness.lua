@@ -83,6 +83,59 @@ local narrow = misc:Column()
 wide:Container("Wide column"):Label({ Text = "This column has Weight = 2." })
 narrow:Container("Narrow"):Label({ Text = "Weight = 1." })
 
+--== page 4: M3 phase A widgets ==--
+local m3 = Win:Page({ Name = "Widgets" })
+local ml, mr = m3:Column(), m3:Column()
+
+local picks = ml:Container("Dropdowns")
+local hitbox = picks:Dropdown({ Name = "Hitbox", Options = { "Head", "Torso", "Pelvis", "Arms", "Legs" },
+    Default = "Head",
+    Description = "Single-select: commits and closes on click." })
+local parts = picks:Dropdown({ Name = "Hitboxes", Multi = true,
+    Options = { "Head", "Torso", "Pelvis", "Arms", "Legs" },
+    Default = { "Head", "Torso" },
+    Description = "Multi-select: ticks a checkbox and stays open." })
+-- Ten options forces the 8-row scroll limit.
+picks:Dropdown({ Name = "Long list", Options = {
+    "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten" } })
+
+local entry = mr:Container("Text and buttons")
+local name = entry:TextBox({ Name = "Nickname", Placeholder = "anonymous", Default = "venuss" })
+local count = entry:TextBox({ Name = "Rounds", Numeric = true, Default = "30" })
+entry:Button({ Text = "Print widget state", Callback = function()
+    print("[Chroma dev] hitbox:", hitbox:Get())
+    print("[Chroma dev] parts:", table.concat(parts:Get(), ", "))
+    print("[Chroma dev] name:", name:Get(), "count:", count:Get(), type(count:Get()))
+end })
+entry:Button({ Text = "Swap dropdown options", Callback = function()
+    hitbox:SetOptions({ "Head", "Neck", "Chest" })
+end })
+
+local binds = ml:Container("Keybinds")
+local trigger = binds:Keybind({ Name = "Trigger", Default = Enum.KeyCode.C, Mode = "Hold",
+    Description = "Left-click to capture, Escape to clear, right-click for the mode menu." })
+local aimKey = binds:Keybind({ Name = "Aim", Default = Enum.UserInputType.MouseButton2,
+    Mode = "Hold" })
+
+local paint = mr:Container("Colours")
+local boxColour = paint:Colorpicker({ Name = "Box", Default = Color3.fromRGB(23, 184, 166),
+    Description = "No alpha strip: this one has no Alpha option." })
+local fillColour = paint:Colorpicker({ Name = "Fill", Default = Color3.fromRGB(255, 64, 64),
+    Alpha = 0.4, Description = "Alpha strip enabled, with the chequerboard behind it." })
+
+local presets = mr:Container("Presets")
+presets:Label({ Text = "M4 wires this to real configs." })
+local slots = presets:ListBox({ Items = { "default", "legit", "rage", "hvh", "closet", "test", "spare" },
+    Rows = 6, Default = "default" })
+presets:Button({ Text = "Report", Callback = function()
+    print("[Chroma dev] trigger:", tostring(trigger:Get()), trigger:GetMode(), "held:", trigger:IsHeld())
+    print("[Chroma dev] aim held:", aimKey:IsHeld())
+    print("[Chroma dev] box:", tostring(boxColour:Get()))
+    local c, a = fillColour:Get()
+    print("[Chroma dev] fill:", tostring(c), "alpha:", a)
+    print("[Chroma dev] preset:", slots:Get())
+end })
+
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)
 print("[Chroma dev] pages:", #Win._pages)

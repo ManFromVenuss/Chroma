@@ -93,7 +93,10 @@ function M.new(root, window, opts)
     button.BackgroundTransparency = 1
     button.Text = ""
     button.AutoButtonColor = false
-    button.Parent = window._rail
+    -- A pinned page sits in the rail's bottom strip rather than in its list, so
+    -- it stays visually separated from the consumer's pages however many they
+    -- add. Today that is only the settings page.
+    button.Parent = opts.Pinned and window._railBottom or window._rail
     root:keep(button)
 
     local marker = Instance.new("Frame")
@@ -120,7 +123,14 @@ function M.new(root, window, opts)
         glyph.BackgroundTransparency = 1
     else
         glyph = Instance.new("TextLabel")
-        glyph.Text = name:sub(1, 1):upper()
+        -- A non-asset Icon string is used VERBATIM, which is how the settings
+        -- page gets its gear: U+2699, verified in-game to render in both Ubuntu
+        -- and Code (the same probe drew U+2731 as an empty box, so the check
+        -- discriminates). Falling back to the page's initial keeps every other
+        -- page working unchanged, and M5 swaps in a Lucide gear by passing an
+        -- asset id instead.
+        glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
+            or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
         glyph.TextSize = 12
         glyph.Size = UDim2.fromOffset(14, 14)
@@ -203,6 +213,7 @@ function M.new(root, window, opts)
         _glyph = glyph,
         name = name,
         body = body,
+        pinned = opts.Pinned == true,
     }, Page)
 
     root:keep(button.Activated:Connect(function()
@@ -300,6 +311,9 @@ function Page:setActiveTab(tab)
         end
         if active then t:_layout() end
     end
+    -- A popup opened from a row in the outgoing tab has no link to it and would
+    -- be left floating over the incoming one.
+    self._window:_layoutChanged()
 end
 
 -- Pages without tabs proxy straight to an implicit one, so a simple page needs
