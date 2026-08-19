@@ -14,7 +14,7 @@ M.Y_NUDGE = -3  -- lifts the tooltip so its text sits level with the icon, not b
 --
 -- All in the anchor's coordinate space, which is the advantage of anchoring
 -- over following the cursor: GetMouseLocation never enters into it, so the
--- GUI-inset mismatch that caused two M1 bugs can't happen.
+-- GUI-inset mismatch can't happen here.
 function M.place(anchor, tip, viewport, gap, margin)
     gap = gap or M.GAP
     margin = margin or M.MARGIN

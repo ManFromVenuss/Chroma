@@ -1,6 +1,5 @@
--- Custom cross cursor. hitTest is pure and unit tested; the DrawingImmediate
--- rendering is added in a later task.
--- hitTest must stay in the Lua 5.4 / Luau intersection.
+-- Custom cross cursor. hitTest is pure and unit tested, so it stays in the
+-- Lua 5.4 / Luau intersection; the DrawingImmediate rendering below does not.
 
 local M = {}
 

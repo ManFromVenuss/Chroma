@@ -681,9 +681,8 @@ return M
 end
 
 __modules["core/cursor"] = function(require)
--- Custom cross cursor. hitTest is pure and unit tested; the DrawingImmediate
--- rendering is added in a later task.
--- hitTest must stay in the Lua 5.4 / Luau intersection.
+-- Custom cross cursor. hitTest is pure and unit tested, so it stays in the
+-- Lua 5.4 / Luau intersection; the DrawingImmediate rendering below does not.
 
 local M = {}
 
@@ -981,7 +980,7 @@ function Tab.new(root, page, name)
 
     -- AbsoluteSize is (0, 0) until the holder has rendered once, so columns
     -- created in the same frame as their page would all get zero width -- the
-    -- same trap that seeded every star particle at the origin in M1.
+    -- same trap that seeds every star particle at the origin.
     -- Re-laying out whenever the holder's size actually changes covers first
     -- render, window resize and page switching in one line, with nobody
     -- needing to remember to call relayout().
@@ -1046,9 +1045,8 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    -- Lucide icon baking is a later milestone. An rbxassetid works already
-    -- because it is just an Image; anything else falls back to the page
-    -- name's first letter, per the library spec.
+    -- An rbxassetid works because it is just an Image; anything else falls
+    -- back to the page name's first letter.
     local glyph
     if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
         glyph = Instance.new("ImageLabel")
@@ -1061,7 +1059,7 @@ function M.new(root, window, opts)
         -- page gets its gear: U+2699, verified in-game to render in both
         -- Ubuntu and Code (U+2731 drew as an empty box in the same probe).
         -- Falling back to the page's initial keeps every other page working
-        -- unchanged; M5 swaps in a Lucide gear via an asset id instead.
+        -- unchanged, and an asset id swaps in a real icon instead.
         glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
             or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
@@ -2249,7 +2247,7 @@ M.Y_NUDGE = -3  -- lifts the tooltip so its text sits level with the icon, not b
 --
 -- All in the anchor's coordinate space, which is the advantage of anchoring
 -- over following the cursor: GetMouseLocation never enters into it, so the
--- GUI-inset mismatch that caused two M1 bugs can't happen.
+-- GUI-inset mismatch can't happen here.
 function M.place(anchor, tip, viewport, gap, margin)
     gap = gap or M.GAP
     margin = margin or M.MARGIN
@@ -2437,8 +2435,8 @@ __modules["core/window"] = function(require)
 -- The window shell: translucent title bar, icon rail, body holding the
 -- backdrop, drag, resize, and the open/close animation.
 --
--- Layout, from the spec: title bar 24px, 4px gap to the body, rail 28px,
--- backdrop band 20px below where containers will sit.
+-- Layout: title bar 24px, 4px gap to the body, rail 28px, and a 20px
+-- backdrop band below where containers sit.
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
@@ -2662,8 +2660,8 @@ function M.new(root, opts)
     railBottomLayout.Parent = railBottom
 
     -- A UIListLayout arranges every child, so the rule is part of the list
-    -- rather than positioned over it -- the same trap that made the sub-tab
-    -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
+    -- rather than positioned over it -- the same trap that makes a full-width
+    -- rule eat a whole row. LayoutOrder 0 puts it above the pinned
     -- buttons, separating it visually from the pages.
     local railRule = Instance.new("Frame")
     railRule.Name = "rule"

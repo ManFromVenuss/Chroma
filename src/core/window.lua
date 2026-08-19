@@ -1,8 +1,8 @@
 -- The window shell: translucent title bar, icon rail, body holding the
 -- backdrop, drag, resize, and the open/close animation.
 --
--- Layout, from the spec: title bar 24px, 4px gap to the body, rail 28px,
--- backdrop band 20px below where containers will sit.
+-- Layout: title bar 24px, 4px gap to the body, rail 28px, and a 20px
+-- backdrop band below where containers sit.
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Cursor = require("core/cursor")
@@ -226,8 +226,8 @@ function M.new(root, opts)
     railBottomLayout.Parent = railBottom
 
     -- A UIListLayout arranges every child, so the rule is part of the list
-    -- rather than positioned over it -- the same trap that made the sub-tab
-    -- rule eat its whole row in M2. LayoutOrder 0 puts it above the pinned
+    -- rather than positioned over it -- the same trap that makes a full-width
+    -- rule eat a whole row. LayoutOrder 0 puts it above the pinned
     -- buttons, separating it visually from the pages.
     local railRule = Instance.new("Frame")
     railRule.Name = "rule"

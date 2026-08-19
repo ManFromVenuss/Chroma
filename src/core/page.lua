@@ -47,7 +47,7 @@ function Tab.new(root, page, name)
 
     -- AbsoluteSize is (0, 0) until the holder has rendered once, so columns
     -- created in the same frame as their page would all get zero width -- the
-    -- same trap that seeded every star particle at the origin in M1.
+    -- same trap that seeds every star particle at the origin.
     -- Re-laying out whenever the holder's size actually changes covers first
     -- render, window resize and page switching in one line, with nobody
     -- needing to remember to call relayout().
@@ -112,9 +112,8 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    -- Lucide icon baking is a later milestone. An rbxassetid works already
-    -- because it is just an Image; anything else falls back to the page
-    -- name's first letter, per the library spec.
+    -- An rbxassetid works because it is just an Image; anything else falls
+    -- back to the page name's first letter.
     local glyph
     if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
         glyph = Instance.new("ImageLabel")
@@ -127,7 +126,7 @@ function M.new(root, window, opts)
         -- page gets its gear: U+2699, verified in-game to render in both
         -- Ubuntu and Code (U+2731 drew as an empty box in the same probe).
         -- Falling back to the page's initial keeps every other page working
-        -- unchanged; M5 swaps in a Lucide gear via an asset id instead.
+        -- unchanged, and an asset id swaps in a real icon instead.
         glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
             or name:sub(1, 1):upper()
         glyph.Font = Enum.Font.Ubuntu
