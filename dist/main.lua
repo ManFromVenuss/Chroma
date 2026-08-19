@@ -1281,10 +1281,9 @@ return M
 end
 
 __modules["core/popup"] = function(require)
--- Popup: the pure placement maths, plus (from the next task) the single-slot
--- overlay manager.
+-- The popup overlay: placement maths, plus the single-slot manager.
 --
--- place() is unit tested, so keep it in the Lua 5.4 / Luau intersection:
+-- place() is unit tested, so it stays in the Lua 5.4 / Luau intersection --
 -- no compound assignment, no bitwise ops, no goto.
 
 local M = {}
@@ -1294,13 +1293,11 @@ M.MARGIN = 6    -- minimum distance from any screen edge
 
 -- Places a popup against the rect of the control that opened it.
 --
--- Popups align to the RIGHT edge of the control slot and extend leftward. The
--- colorpicker is 176px against a 110px slot, so left-aligning would hang it out
--- over the neighbouring column; right-aligning keeps it inside the window.
+-- Right-aligned to the slot and extending left: the colorpicker is 176px
+-- against a 110px slot, so left-aligning hangs it over the next column.
 --
--- Everything here is in the anchor's coordinate space, exactly as Tooltip.place
--- is -- GetMouseLocation never enters the calculation, so the GUI-inset
--- mismatch that caused four earlier bugs cannot happen.
+-- All in the anchor's coordinate space, like Tooltip.place. GetMouseLocation
+-- never enters into it, so the GUI-inset mismatch can't happen here.
 function M.place(anchor, size, viewport, gap, margin)
     gap = gap or M.GAP
     margin = margin or M.MARGIN
@@ -1313,9 +1310,8 @@ function M.place(anchor, size, viewport, gap, margin)
 
     local y = anchor.y + anchor.h + gap
     if y + size.h > viewport.h - margin then
-        -- Flip ABOVE the anchor rather than clamping upward: clamping would
-        -- slide the popup over the control that opened it, which reads as the
-        -- menu having eaten the row.
+        -- Flip above rather than clamp: clamping slides the popup over the
+        -- control that opened it.
         y = anchor.y - size.h - gap
     end
     if y < margin then y = margin end
@@ -1340,13 +1336,11 @@ local function inside(object, x, y)
     return x >= p.X and x <= p.X + s.X and y >= p.Y and y <= p.Y + s.Y
 end
 
--- ONE popup at a time, and that is a decision rather than a simplification.
--- Containers clip and columns scroll, so a popup has to live in the overlay
--- layer positioned by absolute coordinates -- it has NO parent-child link to
--- the row that opened it, and nothing hides it automatically. With one slot,
--- "this popup is stale, close it" is one code path. With several, every
--- dismissal event has to walk a list and decide individually, and the failure
--- mode is a dropdown left floating over an unrelated page.
+-- One popup at a time. Containers clip and columns scroll, so a popup lives in
+-- the overlay layer at absolute coordinates, with no parent-child link to the
+-- row that opened it -- nothing hides it automatically. One slot keeps "this is
+-- stale, close it" to a single code path; with several, every dismissal has to
+-- walk a list, and the failure mode is a dropdown floating over another page.
 function M.new(root)
     UserInputService = UserInputService or game:GetService("UserInputService")
     RunService = RunService or game:GetService("RunService")
@@ -1360,12 +1354,10 @@ function M.new(root)
         _watch = nil,
     }, Popup)
 
-    -- Click-outside dismissal is a hit test, NOT a full-screen blocker button.
-    -- A blocker was tried first and swallowed the click that dismissed the
-    -- popup: dragging the title bar with a dropdown open closed the dropdown on
-    -- mouse-RELEASE and never started the drag, because the bar never received
-    -- the press. Testing the pointer against the popup's own rect lets the click
-    -- reach whatever is underneath, which is what a menu should do.
+    -- A hit test, not a full-screen blocker button. The blocker swallowed the
+    -- dismissing click: dragging the title bar with a dropdown open closed it
+    -- on mouse-release and never started the drag, because the bar never saw
+    -- the press.
     root:keep(UserInputService.InputBegan:Connect(function(input)
         if self._owner == nil then return end
 
@@ -1374,9 +1366,8 @@ function M.new(root)
             return
         end
 
-        -- Touch is included so a tap outside cannot leave a popup stuck open
-        -- forever on a touch-only target. Chroma is mouse-oriented and this is
-        -- untested there, but a silent dead end is worse than an untested line.
+        -- Touch is here so a tap outside can't strand a popup on a touch-only
+        -- target. Untested there, but a silent dead end is worse.
         if input.UserInputType ~= Enum.UserInputType.MouseButton1
             and input.UserInputType ~= Enum.UserInputType.MouseButton2
             and input.UserInputType ~= Enum.UserInputType.Touch then
@@ -1384,16 +1375,15 @@ function M.new(root)
         end
 
         local mx, my = root:mouseInGuiSpace()
-        -- The anchor counts as inside. A click on the field that opened this
-        -- popup must fall through to that widget's own toggle, or the widget
-        -- would reopen what this just closed and the popup could never be
-        -- dismissed by clicking its own control.
+        -- The anchor counts as inside: a click on the field that opened this
+        -- has to fall through to the widget's own toggle, or it reopens what we
+        -- just closed.
         if inside(self._frame, mx, my) or inside(self._anchor, mx, my) then return end
         self:close()
     end))
 
-    -- ONE cleanup closure for the watch connection, registered once. Registering
-    -- per open would grow the junk list on every click.
+    -- One cleanup closure, registered once: doing it per open would grow the
+    -- junk list on every click.
     root:keep(function()
         if self._watch then
             self._watch:Disconnect()
@@ -1404,14 +1394,13 @@ function M.new(root)
     return self
 end
 
--- `anchor` is the GuiObject that opened the popup (a field, a swatch). The rect
--- is read from it rather than passed in, so the caller cannot get the two out of
--- step, and it gives the drift watch below something to watch.
+-- `anchor` is the GuiObject that opened the popup. Its rect is read here
+-- rather than passed in, so the two can't get out of step -- and the drift
+-- watch below needs the object anyway.
 function Popup:open(owner, frame, anchor, onClose)
-    -- close() fires the outgoing popup's onClose, and that callback may itself
-    -- open a popup. Loop until the slot is actually empty: otherwise the open
-    -- below would overwrite _watch and orphan a RenderStepped connection that
-    -- the re-entrant open had just installed.
+    -- close() fires the outgoing onClose, which may itself open a popup. Loop
+    -- until the slot is empty, or the open below overwrites _watch and orphans
+    -- a RenderStepped connection.
     local guard = 0
     while self._owner ~= nil or self._watch ~= nil do
         self:close()
@@ -1419,10 +1408,8 @@ function Popup:open(owner, frame, anchor, onClose)
         assert(guard < 8, "chroma: a popup onClose callback kept reopening a popup")
     end
 
-    -- Positioned from the frame's declared pixel Size, NOT AbsoluteSize:
-    -- AbsoluteSize is (0, 0) until the frame has rendered once, and a popup is
-    -- placed the instant it opens. Every popup therefore sets an explicit
-    -- offset size.
+    -- From the declared pixel Size, not AbsoluteSize: that reads (0, 0) until
+    -- the frame has rendered once, and a popup is placed the instant it opens.
     local w, h = frame.Size.X.Offset, frame.Size.Y.Offset
     assert(w > 0 and h > 0, "chroma: popup frames must declare a pixel Size")
 
@@ -1440,11 +1427,10 @@ function Popup:open(owner, frame, anchor, onClose)
     frame.Position = UDim2.fromOffset(self._root:toLayerSpace(x, y, frame.Parent))
     frame.Visible = true
 
-    -- While one is open -- and only then -- close it if its anchor moves at all.
-    -- This is the same "watch while visible" pattern the tooltip uses for a
-    -- stuck hover, and it covers column scrolling, window dragging and resizing
-    -- in one place. Page and tab switches do NOT move the anchor (an inactive
-    -- page keeps its geometry), so those are wired separately in bindDismissal.
+    -- While open, close if the anchor moves at all -- the same watch-while-
+    -- visible trick the tooltip uses. Covers column scrolling, dragging and
+    -- resizing in one place. Page and tab switches don't move the anchor, so
+    -- those go through bindDismissal instead.
     local originX, originY = pos.X, pos.Y
     self._watch = RunService.RenderStepped:Connect(function()
         if not anchor.Parent then
@@ -1459,8 +1445,8 @@ function Popup:open(owner, frame, anchor, onClose)
 end
 
 function Popup:close()
-    -- Captured and fired LAST, after every field is cleared: an onClose that
-    -- opens something else must not race a half-torn-down manager.
+    -- Fired last, once every field is cleared, so an onClose that opens
+    -- something else isn't racing a half-torn-down manager.
     local onClose = self._onClose
 
     if self._watch then
@@ -1478,8 +1464,8 @@ function Popup:close()
     if onClose then onClose() end
 end
 
--- With no argument: is anything open. With an owner: is that owner's popup
--- open, which is what lets a widget toggle itself.
+-- No argument: is anything open. With an owner: is that owner's popup open,
+-- which is what lets a widget toggle itself.
 function Popup:isOpen(owner)
     if owner == nil then return self._owner ~= nil end
     return self._owner == owner

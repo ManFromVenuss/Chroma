@@ -3,3 +3,7 @@ __pycache__/
 
 # brainstorming session scratch (visual companion mockups)
 .superpowers/
+
+# design specs and implementation plans -- kept local, they are working notes
+docs/superpowers/
+CLAUDE.md

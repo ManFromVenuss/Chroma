@@ -2,8 +2,9 @@
 
 A UI library for Roblox executor scripts, styled after gamesense. Consumers load one generated file.
 
-Design decisions live in `docs/superpowers/specs/`. Read the library spec before changing behaviour;
-it records what was tried and rejected, with the measurements behind each call.
+Design notes are kept locally rather than in the repo. Where a decision was reached by measurement
+or cost a debugging cycle, the reason is in a comment next to the code — those comments are the
+record, so don't strip them.
 
 ## Invariants
 
