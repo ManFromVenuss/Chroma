@@ -1,7 +1,7 @@
--- A column: the pure width-distribution maths, plus (from a later task) the
--- ScrollingFrame that holds containers.
+-- A column: the pure width-distribution maths, plus the ScrollingFrame that
+-- holds containers.
 --
--- widths() is the ONLY place M2 computes a size by hand. Everything else is
+-- widths() is the only place a size is computed by hand. Everything else is
 -- AutomaticSize / AutomaticCanvasSize, because UIListLayout cannot express
 -- ratios but can do everything else.
 --
@@ -66,7 +66,7 @@ function M.new(root, parent, opts)
     frame.BackgroundTransparency = 1
     frame.BorderSizePixel = 0
     frame.CanvasSize = UDim2.new()
-    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- The property is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
     -- There is no Enum.AutomaticCanvasSize.
     frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
     frame.ScrollBarThickness = 2

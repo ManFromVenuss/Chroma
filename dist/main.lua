@@ -473,10 +473,10 @@ return M
 end
 
 __modules["core/column"] = function(require)
--- A column: the pure width-distribution maths, plus (from a later task) the
--- ScrollingFrame that holds containers.
+-- A column: the pure width-distribution maths, plus the ScrollingFrame that
+-- holds containers.
 --
--- widths() is the ONLY place M2 computes a size by hand. Everything else is
+-- widths() is the only place a size is computed by hand. Everything else is
 -- AutomaticSize / AutomaticCanvasSize, because UIListLayout cannot express
 -- ratios but can do everything else.
 --
@@ -541,7 +541,7 @@ function M.new(root, parent, opts)
     frame.BackgroundTransparency = 1
     frame.BorderSizePixel = 0
     frame.CanvasSize = UDim2.new()
-    -- The PROPERTY is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
+    -- The property is AutomaticCanvasSize, but its type is Enum.AutomaticSize.
     -- There is no Enum.AutomaticCanvasSize.
     frame.AutomaticCanvasSize = Enum.AutomaticSize.Y
     frame.ScrollBarThickness = 2
@@ -580,7 +580,7 @@ return M
 end
 
 __modules["core/container"] = function(require)
--- A titled section: the title sits OUTSIDE a bordered box, on the backdrop,
+-- A titled section: the title sits outside a bordered box, on the backdrop,
 -- as gamesense does. The box height is derived from its rows via
 -- AutomaticSize -- nothing here computes a height.
 
@@ -730,7 +730,7 @@ function M.new(root, opts, isOver)
         _hidden = false,
     }, Cursor)
 
-    -- Only a MISSING DrawingImmediate is fatal here. A Style of false or "None"
+    -- Only a missing DrawingImmediate is fatal here. A Style of false or "None"
     -- still connects the paint loop, because the settings page can turn the
     -- cursor back on -- and it cannot do that if the connection was never made.
     if not DrawingImmediate then
@@ -772,7 +772,7 @@ function Cursor:_paint()
     local off = self._cfg.Style == false or self._cfg.Style == "None"
     local over = (not off) and self._isOver()
 
-    -- _hidden records whether WE have hidden the OS pointer.
+    -- _hidden records whether Chroma has hidden the OS pointer.
     --
     -- This re-asserts while the pointer is over the menu rather than writing
     -- only on the transition. A transition-only write is enough on a baseplate,
@@ -1531,7 +1531,7 @@ function Root.new(opts)
         _alive = true,
         -- Set by a Keybind while it is capturing. The window's toggle handler
         -- checks it: without this, binding the menu's own toggle key would bind
-        -- the key AND close the menu in one press.
+        -- the key and close the menu in one press.
         capturing = false,
         parentKind = parentKind,
         theme = Theme.new(opts),
@@ -1547,7 +1547,7 @@ function Root.new(opts)
     self.gui = gui
     self:keep(function() gui:Destroy() end)
 
-    -- Layer stack. Popups and tooltips are siblings ABOVE the window, never
+    -- Layer stack. Popups and tooltips are siblings above the window, never
     -- children of a container: the window body clips for the slide animation,
     -- so anything meant to overflow has to live outside it.
     self.windowLayer = self:_layer("windows", 1)
@@ -1606,9 +1606,9 @@ end
 --== coordinate spaces ==--
 -- GetMouseLocation is true screen space. AbsolutePosition is measured below the
 -- GUI inset, and Position is relative to a parent that may itself be offset.
--- Converting by hand caused four separate bugs: the window teleporting on every
--- drag, the cursor's hover rect sitting 58px high, the window centring itself
--- too high, and the tooltip floating above its icon. Convert here instead.
+-- Converting by hand per call site is error-prone -- past attempts misplaced
+-- drags, the cursor's hover rect, window centring and the tooltip position.
+-- Convert here instead.
 
 -- The pointer, in the same space as any AbsolutePosition.
 function Root:mouseInGuiSpace()
@@ -1868,13 +1868,12 @@ __modules["core/settings"] = function(require)
 --
 -- Everything here writes through knobs that already existed -- setAccent,
 -- setPalette, the cursor config, the Animations flag -- so this file adds no
--- infrastructure, only a surface. Settings are NOT persisted in M3; M4's config
--- manager adds that.
+-- infrastructure, only a surface. Settings are not persisted yet.
 
 local M = {}
 
 -- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
--- so no image asset is needed; M5 can pass a Lucide asset id here instead
+-- so no image asset is needed; a Lucide asset id could replace it here
 -- without touching anything else.
 local GEAR = "\u{2699}"
 
@@ -2037,7 +2036,7 @@ local STORED = {
 }
 
 -- Surfaces that are translucent by default. Anything absent is opaque.
--- The title bar is the ONLY translucent surface by design: it sits outside the
+-- The title bar is the only translucent surface by design: it sits outside the
 -- body and shows the game directly, which is what makes it read as separate.
 local TRANSPARENCY = {
     TitleBar  = 0.35,
@@ -2154,8 +2153,8 @@ function Theme:_recompute(clock)
     d.Glow = accent
     d.HairA = accent
     -- HairA and HairB are the two ends of the gradient on the window outline
-    -- and the title bar's hairlines. Equal ends collapse it to a flat colour,
-    -- which is the whole difference between the Static and Gradient modes.
+    -- and the title bar's hairlines. Equal ends collapse it to a flat colour;
+    -- that is the difference between Static and Gradient modes.
     if self._gradient then
         d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
     else

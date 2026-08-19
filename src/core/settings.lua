@@ -2,13 +2,12 @@
 --
 -- Everything here writes through knobs that already existed -- setAccent,
 -- setPalette, the cursor config, the Animations flag -- so this file adds no
--- infrastructure, only a surface. Settings are NOT persisted in M3; M4's config
--- manager adds that.
+-- infrastructure, only a surface. Settings are not persisted yet.
 
 local M = {}
 
 -- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
--- so no image asset is needed; M5 can pass a Lucide asset id here instead
+-- so no image asset is needed; a Lucide asset id could replace it here
 -- without touching anything else.
 local GEAR = "\u{2699}"
 

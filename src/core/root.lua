@@ -49,7 +49,7 @@ function Root.new(opts)
         _alive = true,
         -- Set by a Keybind while it is capturing. The window's toggle handler
         -- checks it: without this, binding the menu's own toggle key would bind
-        -- the key AND close the menu in one press.
+        -- the key and close the menu in one press.
         capturing = false,
         parentKind = parentKind,
         theme = Theme.new(opts),
@@ -65,7 +65,7 @@ function Root.new(opts)
     self.gui = gui
     self:keep(function() gui:Destroy() end)
 
-    -- Layer stack. Popups and tooltips are siblings ABOVE the window, never
+    -- Layer stack. Popups and tooltips are siblings above the window, never
     -- children of a container: the window body clips for the slide animation,
     -- so anything meant to overflow has to live outside it.
     self.windowLayer = self:_layer("windows", 1)
@@ -124,9 +124,9 @@ end
 --== coordinate spaces ==--
 -- GetMouseLocation is true screen space. AbsolutePosition is measured below the
 -- GUI inset, and Position is relative to a parent that may itself be offset.
--- Converting by hand caused four separate bugs: the window teleporting on every
--- drag, the cursor's hover rect sitting 58px high, the window centring itself
--- too high, and the tooltip floating above its icon. Convert here instead.
+-- Converting by hand per call site is error-prone -- past attempts misplaced
+-- drags, the cursor's hover rect, window centring and the tooltip position.
+-- Convert here instead.
 
 -- The pointer, in the same space as any AbsolutePosition.
 function Root:mouseInGuiSpace()

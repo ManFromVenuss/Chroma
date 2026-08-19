@@ -1,4 +1,4 @@
--- A titled section: the title sits OUTSIDE a bordered box, on the backdrop,
+-- A titled section: the title sits outside a bordered box, on the backdrop,
 -- as gamesense does. The box height is derived from its rows via
 -- AutomaticSize -- nothing here computes a height.
 

@@ -47,7 +47,7 @@ function M.new(root, opts, isOver)
         _hidden = false,
     }, Cursor)
 
-    -- Only a MISSING DrawingImmediate is fatal here. A Style of false or "None"
+    -- Only a missing DrawingImmediate is fatal here. A Style of false or "None"
     -- still connects the paint loop, because the settings page can turn the
     -- cursor back on -- and it cannot do that if the connection was never made.
     if not DrawingImmediate then
@@ -89,7 +89,7 @@ function Cursor:_paint()
     local off = self._cfg.Style == false or self._cfg.Style == "None"
     local over = (not off) and self._isOver()
 
-    -- _hidden records whether WE have hidden the OS pointer.
+    -- _hidden records whether Chroma has hidden the OS pointer.
     --
     -- This re-asserts while the pointer is over the menu rather than writing
     -- only on the transition. A transition-only write is enough on a baseplate,

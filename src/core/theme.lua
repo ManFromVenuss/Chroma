@@ -26,7 +26,7 @@ local STORED = {
 }
 
 -- Surfaces that are translucent by default. Anything absent is opaque.
--- The title bar is the ONLY translucent surface by design: it sits outside the
+-- The title bar is the only translucent surface by design: it sits outside the
 -- body and shows the game directly, which is what makes it read as separate.
 local TRANSPARENCY = {
     TitleBar  = 0.35,
@@ -143,8 +143,8 @@ function Theme:_recompute(clock)
     d.Glow = accent
     d.HairA = accent
     -- HairA and HairB are the two ends of the gradient on the window outline
-    -- and the title bar's hairlines. Equal ends collapse it to a flat colour,
-    -- which is the whole difference between the Static and Gradient modes.
+    -- and the title bar's hairlines. Equal ends collapse it to a flat colour;
+    -- that is the difference between Static and Gradient modes.
     if self._gradient then
         d.HairB = shiftHue(accent, HAIR_HUE_SHIFT)
     else
