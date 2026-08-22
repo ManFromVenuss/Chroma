@@ -338,26 +338,27 @@ end
 
 -- Applies everything still pending, then marks the manager live so any widget
 -- built afterwards catches up on registration instead.
+--
+-- A flag still unmatched here is not yet known to be orphaned: finish() can
+-- fire on the quiet timeout while the consumer script is merely slow (an
+-- HttpGet mid-build, say), before every widget has registered. Such a flag
+-- stays in _pending, where a late registration or the next Save still finds
+-- it, so no warning is given here -- it would be a guess, and wrong for the
+-- common slow-script case. A flag that really is orphaned is surfaced
+-- unambiguously later, by an explicit LoadConfig call.
 function Config:finish()
     if self._live then return end
     self._live = true
 
-    local applied, unknown = 0, {}
+    local applied = 0
     for flag, value in pairs(self._pending) do
         if self._widgets[flag] ~= nil then
             applyOne(self, flag, value, self._autoloadName)
             self._pending[flag] = nil
             applied = applied + 1
-        else
-            table.insert(unknown, flag)
         end
     end
 
-    if #unknown > 0 and self._autoloadName then
-        table.sort(unknown)
-        warn("[Chroma] autoload config '" .. self._autoloadName .. "' has " ..
-            #unknown .. " flag(s) with no widget: " .. table.concat(unknown, ", "))
-    end
     return applied
 end
 
