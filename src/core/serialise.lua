@@ -36,7 +36,12 @@ function M.encode(value)
     if kind == "EnumItem" then
         -- By name rather than by value: enum numbering is not stable across
         -- Roblox versions, and a name is legible in the saved file.
-        return { [TAG] = "Enum", enum = value.EnumType.Name, name = value.Name }
+        --
+        -- tostring(EnumType) returns e.g. "KeyCode". Reading EnumType.Name
+        -- looks tidier but is a Roblox trap: the Enum object has no Name
+        -- property, and the local test harness happens to stub one, so the
+        -- suite passes green while the real code throws on the first save.
+        return { [TAG] = "Enum", enum = tostring(value.EnumType), name = value.Name }
     end
 
     if kind == "table" then

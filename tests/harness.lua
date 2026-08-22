@@ -118,16 +118,23 @@ end
 local EnumItem = {}
 EnumItem.__index = EnumItem
 
+-- Enum objects don't have a Name property in real Roblox -- tostring(enum)
+-- returns just the group name (e.g. "KeyCode"). The stub matches that: an
+-- earlier version exposed .Name and the resulting test-only success hid a
+-- real bug in serialise.encode that only surfaced in-game.
+local EnumType = {}
+EnumType.__index = EnumType
+EnumType.__tostring = function(self) return rawget(self, "_name") end
+
 -- Items are created on demand, so a test can name any key without the stub
 -- carrying Roblox's full enum list.
 local function makeEnum(enumName)
-    local self = { Name = enumName }
-    self._items = {}
-    return setmetatable(self, {
-        __index = function(t, key)
-            local items = rawget(t, "_items")
+    local self = setmetatable({ _name = enumName, _items = {} }, EnumType)
+    return setmetatable({}, {
+        __index = function(_, key)
+            local items = rawget(self, "_items")
             if items[key] == nil then
-                items[key] = setmetatable({ Name = key, EnumType = t }, EnumItem)
+                items[key] = setmetatable({ Name = key, EnumType = self }, EnumItem)
             end
             return items[key]
         end,
