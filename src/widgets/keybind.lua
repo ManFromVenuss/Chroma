@@ -344,6 +344,19 @@ function Keybind:IsHeld()
     return self._down
 end
 
+-- Get() returns only the bind, but the mode is state as well, so the config
+-- manager takes both through Save/Load rather than widening the shared contract
+-- for the two widgets that need it.
+function Keybind:Save()
+    return { bind = self._bind, mode = self._mode }
+end
+
+function Keybind:Load(t)
+    if type(t) ~= "table" then return end
+    if t.mode ~= nil then self:SetMode(t.mode) end
+    self:Set(t.bind)
+end
+
 function Keybind:OnChanged(fn)
     table.insert(self._listeners, fn)
 end

@@ -505,6 +505,11 @@ function Window:Flag(flag)
     return self._root.config:get(flag)
 end
 
+function Window:SaveConfig(name) return self._root.config:Save(name) end
+function Window:LoadConfig(name) return self._root.config:Load(name) end
+function Window:DeleteConfig(name) return self._root.config:Delete(name) end
+function Window:ListConfigs() return self._root.config:List() end
+
 -- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)

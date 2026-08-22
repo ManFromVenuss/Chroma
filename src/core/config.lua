@@ -138,4 +138,125 @@ function Config:_snapshot()
     return out
 end
 
+--== file IO ==--
+-- Executors sandbox these to their own workspace folder, so paths are relative
+-- and no absolute path is ever built.
+
+local function ensureFolder(path)
+    if isfolder and not isfolder(path) then
+        if makefolder then makefolder(path) end
+    end
+end
+
+function Config:_configPath(name)
+    return self._folder .. "/configs/" .. name .. ".json"
+end
+
+function Config:isAvailable()
+    return not self._root:isDegraded("config")
+end
+
+function Config:ensureFolders()
+    if not self:isAvailable() then return end
+    ensureFolder(self._folder)
+    ensureFolder(self._folder .. "/configs")
+end
+
+function Config:List()
+    if not self:isAvailable() or not listfiles then return {} end
+    self:ensureFolders()
+
+    local out = {}
+    local ok, files = pcall(listfiles, self._folder .. "/configs")
+    if not ok then return out end
+
+    for i = 1, #files do
+        local name = files[i]:match("([^/\\]+)%.json$")
+        if name then table.insert(out, name) end
+    end
+    table.sort(out)
+    return out
+end
+
+function Config:Save(rawName)
+    if not self:isAvailable() then return false, "configs unavailable" end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false, "invalid config name" end
+
+    self:ensureFolders()
+
+    -- Unknown flags are carried through rather than dropped: a config written
+    -- by a build with more widgets should survive a round trip through one with
+    -- fewer, or loading a script twice would quietly prune it.
+    local data = self:_snapshot()
+    for flag, value in pairs(self._pending) do
+        if self._widgets[flag] == nil then data[flag] = value end
+    end
+
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode(data)
+    end)
+    if not ok then return false, "could not encode config" end
+
+    local written = pcall(writefile, self:_configPath(name), encoded)
+    if not written then return false, "could not write config" end
+    return true, name
+end
+
+function Config:Load(rawName)
+    if not self:isAvailable() then return false, "configs unavailable" end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false, "invalid config name" end
+
+    local path = self:_configPath(name)
+    if isfile and not isfile(path) then return false, "no such config" end
+
+    local ok, text = pcall(readfile, path)
+    if not ok then return false, "could not read config" end
+
+    local decoded, data = pcall(function()
+        return HttpService:JSONDecode(text)
+    end)
+    if not decoded or type(data) ~= "table" then
+        -- Corrupt on disk. Warn and leave the menu alone rather than erroring:
+        -- a bad file must not cost the user their whole session.
+        warn("[Chroma] config '" .. name .. "' is unreadable and was ignored")
+        return false, "corrupt config"
+    end
+
+    local unknown = M.diffFlags(data, self._widgets)
+    if #unknown > 0 then
+        -- Almost always a renamed Flag, which strands every value saved under
+        -- the old name. Silence here is what makes that expensive to find.
+        warn("[Chroma] config '" .. name .. "' has " .. #unknown ..
+            " flag(s) with no widget: " .. table.concat(unknown, ", "))
+    end
+
+    for flag, value in pairs(data) do
+        if self._widgets[flag] ~= nil then
+            self:_apply(flag, value)
+        else
+            self._pending[flag] = value
+        end
+    end
+    return true, name
+end
+
+function Config:Delete(rawName)
+    if not self:isAvailable() then return false, "configs unavailable" end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false, "invalid config name" end
+
+    local path = self:_configPath(name)
+    if isfile and not isfile(path) then return false, "no such config" end
+    if not delfile then return false, "delfile unavailable" end
+
+    local ok = pcall(delfile, path)
+    if not ok then return false, "could not delete config" end
+    return true, name
+end
+
 return M

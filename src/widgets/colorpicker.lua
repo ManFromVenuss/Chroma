@@ -514,6 +514,17 @@ function Colorpicker:SetAlpha(a, silent)
     self:_fire()
 end
 
+-- Alpha is state that Get() returns second, so it travels alongside the colour.
+function Colorpicker:Save()
+    return { colour = self:_colour(), alpha = self._a }
+end
+
+function Colorpicker:Load(t)
+    if type(t) ~= "table" then return end
+    if t.alpha ~= nil then self:SetAlpha(t.alpha, true) end
+    self:Set(t.colour)
+end
+
 function Colorpicker:OnChanged(fn)
     table.insert(self._listeners, fn)
 end
