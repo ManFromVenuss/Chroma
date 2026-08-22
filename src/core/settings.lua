@@ -5,6 +5,7 @@
 -- infrastructure, only a surface. Settings are not persisted yet.
 
 local M = {}
+local ConfigUI = require("core/configui")
 
 -- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
 -- so no image asset is needed; a Lucide asset id could replace it here
@@ -15,7 +16,11 @@ function M.build(root, window)
     local theme = root.theme
 
     local page = window:Page({ Name = "Settings", Icon = GEAR, Pinned = true })
-    local left, right = page:Column(), page:Column()
+
+    -- Sub-tabs rather than one long page: the two halves have nothing to do
+    -- with each other, and appearance is the one people open repeatedly.
+    local appearance = page:Tab("Appearance")
+    local left, right = appearance:Column(), appearance:Column()
 
     --== accent ==--
     local accent = left:Container("Accent")
@@ -136,6 +141,8 @@ function M.build(root, window)
             window:setCursor({ Outline = value })
         end,
     })
+
+    ConfigUI.build(root, window, page:Tab("Configs"))
 
     return page
 end
