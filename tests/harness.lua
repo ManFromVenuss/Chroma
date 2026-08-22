@@ -110,6 +110,42 @@ function M.fakeInstance(fields)
     })
 end
 
+--== Enum and typeof stubs ==--
+-- Roblox dispatches on typeof(), so the pure encoder does too. Providing it
+-- here is the same bargain as the Color3 stub above: the module under test runs
+-- unmodified, and the stub only has to be faithful for the types Chroma stores.
+
+local EnumItem = {}
+EnumItem.__index = EnumItem
+
+-- Items are created on demand, so a test can name any key without the stub
+-- carrying Roblox's full enum list.
+local function makeEnum(enumName)
+    local self = { Name = enumName }
+    self._items = {}
+    return setmetatable(self, {
+        __index = function(t, key)
+            local items = rawget(t, "_items")
+            if items[key] == nil then
+                items[key] = setmetatable({ Name = key, EnumType = t }, EnumItem)
+            end
+            return items[key]
+        end,
+    })
+end
+
+M.Enum = { KeyCode = makeEnum("KeyCode"), UserInputType = makeEnum("UserInputType") }
+_G.Enum = M.Enum
+
+function _G.typeof(value)
+    if type(value) == "table" then
+        local mt = getmetatable(value)
+        if mt == Color3 then return "Color3" end
+        if mt == EnumItem then return "EnumItem" end
+    end
+    return type(value)
+end
+
 --== assertions ==--
 
 local function fail(msg, level)
