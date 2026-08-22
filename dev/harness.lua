@@ -1,5 +1,5 @@
 -- In-game verification harness. Not part of dist. Copy dist/main.lua into the
--- Potassium workspace with `python build/build.py --install`, then run this file
+-- executor workspace with `python build/build.py --install`, then run this file
 -- through the executor.
 --
 -- Kept out of src/ deliberately: it must not end up in the bundle.
@@ -13,6 +13,11 @@ end
 -- way through, Root has already created a ScreenGui, and without a handle there
 -- is no way to reach it -- the first in-game run leaked exactly that way.
 getgenv().__chromaDev = function() pcall(function() Chroma:Unload() end) end
+
+-- Every loadstring of the bundle returns a fresh Chroma module table, so an
+-- external probe cannot reach THIS harness's Flags by re-loading the bundle.
+-- Stashing the handle here means a probe can read Chroma.Flags directly.
+getgenv().__chroma = Chroma
 
 -- No Backdrop override: the library's own default asset is verified working, so
 -- dev runs on exactly what a consumer would get. Confirmed in-game by rendering
