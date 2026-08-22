@@ -137,6 +137,24 @@ presets:Button({ Text = "Report", Callback = function()
     print("[Chroma dev] preset:", slots:Get())
 end })
 
+--== config manager ==--
+local cfg = mr:Container("Config test")
+cfg:Button({ Text = "Save 'probe'", Callback = function()
+    print("[Chroma dev] save:", Win:SaveConfig("probe"))
+end })
+cfg:Button({ Text = "Load 'probe'", Callback = function()
+    print("[Chroma dev] load:", Win:LoadConfig("probe"))
+end })
+cfg:Button({ Text = "List configs", Callback = function()
+    print("[Chroma dev] configs:", table.concat(Win:ListConfigs(), ", "))
+end })
+cfg:Button({ Text = "Dump flags", Callback = function()
+    print("[Chroma dev] hitbox:", Chroma.Flags.m3_hitbox,
+        "rounds:", Chroma.Flags.m3_rounds,
+        "trigger:", tostring(Chroma.Flags.m3_trigger))
+    print("[Chroma dev] trigger held:", Win:Flag("m3_trigger"):IsHeld())
+end })
+
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)
 print("[Chroma dev] pages:", #Win._pages)
