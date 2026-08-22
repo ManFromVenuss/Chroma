@@ -1816,6 +1816,105 @@ end
 return M
 end
 
+__modules["core/palette"] = function(require)
+-- The saved-colour palette, shared by every colorpicker in the window.
+--
+-- Global rather than per-config, in its own file: a palette is a preference
+-- about how you work, not a setting of one config, and loading a config should
+-- not silently swap your swatches.
+
+local serialise = require("core/serialise")
+
+local M = {}
+
+local MAX = 10
+
+local Palette = {}
+Palette.__index = Palette
+
+function M.new(root, folder)
+    local self = setmetatable({
+        _root = root,
+        _path = folder .. "/palette.json",
+        _colours = {},
+        _listeners = {},
+    }, Palette)
+    self:_read()
+    return self
+end
+
+function Palette:Get()
+    return self._colours
+end
+
+function Palette:onChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Palette:_notify()
+    for i = 1, #self._listeners do
+        self._listeners[i]()
+    end
+end
+
+function Palette:Add(colour)
+    if typeof(colour) ~= "Color3" then return end
+    for i = 1, #self._colours do
+        if self._colours[i] == colour then return end
+    end
+    table.insert(self._colours, colour)
+    -- Oldest out first: the row is a fixed width, and silently refusing to add
+    -- would read as the button being broken.
+    while #self._colours > MAX do
+        table.remove(self._colours, 1)
+    end
+    self:_write()
+    self:_notify()
+end
+
+function Palette:Remove(index)
+    if self._colours[index] == nil then return end
+    table.remove(self._colours, index)
+    self:_write()
+    self:_notify()
+end
+
+function Palette:_read()
+    if self._root:isDegraded("config") or not isfile then return end
+    if not isfile(self._path) then return end
+
+    local ok, text = pcall(readfile, self._path)
+    if not ok then return end
+
+    local HttpService = game:GetService("HttpService")
+    local decoded, data = pcall(function() return HttpService:JSONDecode(text) end)
+    if not decoded or type(data) ~= "table" then return end
+
+    for i = 1, #data do
+        local colour = serialise.decode(data[i])
+        if typeof(colour) == "Color3" then
+            table.insert(self._colours, colour)
+        end
+    end
+end
+
+function Palette:_write()
+    if self._root:isDegraded("config") or not writefile then return end
+
+    local out = {}
+    for i = 1, #self._colours do
+        out[i] = serialise.encode(self._colours[i])
+    end
+
+    local HttpService = game:GetService("HttpService")
+    local ok, text = pcall(function() return HttpService:JSONEncode(out) end)
+    if not ok then return end
+    pcall(writefile, self._path, text)
+end
+
+return M
+end
+
 __modules["core/popup"] = function(require)
 -- The popup overlay: placement maths, plus the single-slot manager.
 --
@@ -3083,6 +3182,7 @@ local Backdrop = require("core/backdrop")
 local Config = require("core/config")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
@@ -3332,11 +3432,17 @@ function M.new(root, opts)
     -- handed one.
     -- Created before any page exists, because container.lua registers flags as
     -- it builds and the settings page below is itself a consumer.
-    root.config = Config.new(root, opts.ConfigFolder or opts.Name or "chroma")
+    local configFolder = opts.ConfigFolder or opts.Name or "chroma"
+
+    root.config = Config.new(root, configFolder)
     root.config:primeAutoload()
     -- coroutine.running() here is the consuming script's own thread, because
     -- Chroma:Window() is called directly from it.
     root.config:watchForCompletion(coroutine.running())
+
+    -- One palette per window, reached through root so every colorpicker shares
+    -- it without being handed one.
+    root.palette = Palette.new(root, configFolder)
 
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
@@ -3985,10 +4091,16 @@ local FIELD_H = 16
 local FIELD_GAP = 7
 local CHEQUER = 5   -- chequerboard cell, in pixels
 
+local SWATCH = 12
+local SWATCH_GAP = 3
+local SWATCH_ROW_GAP = 6
+
 local function popupHeight(hasAlpha)
     local strips = hasAlpha and 2 or 1
     return PAD + SQUARE_H + strips * (STRIP_GAP + STRIP_H)
-        + FIELD_GAP + FIELD_H + PAD
+        + FIELD_GAP + FIELD_H
+        + SWATCH_ROW_GAP + SWATCH
+        + PAD
 end
 
 function M.new(root, row, opts)
@@ -4204,6 +4316,43 @@ function M.new(root, row, opts)
     inputStroke.Parent = input
     theme:bind(inputStroke, "Color", "FieldBorder")
 
+    --== saved colours ==--
+    -- Eleven cells across 162px: ten swatches and a + to save the current
+    -- colour. Left-click applies, right-click deletes.
+    local swatchRow = Instance.new("Frame")
+    swatchRow.Name = "swatches"
+    swatchRow.Position = UDim2.fromOffset(PAD, popupHeight(hasAlpha) - PAD - SWATCH)
+    swatchRow.Size = UDim2.fromOffset(INNER, SWATCH)
+    swatchRow.BackgroundTransparency = 1
+    swatchRow.BorderSizePixel = 0
+    swatchRow.ZIndex = 12
+    swatchRow.Parent = popup
+
+    local swatchLayout = Instance.new("UIListLayout")
+    swatchLayout.FillDirection = Enum.FillDirection.Horizontal
+    swatchLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    swatchLayout.Padding = UDim.new(0, SWATCH_GAP)
+    swatchLayout.Parent = swatchRow
+
+    local addButton = Instance.new("TextButton")
+    addButton.Name = "add"
+    addButton.Size = UDim2.fromOffset(SWATCH, SWATCH)
+    addButton.BorderSizePixel = 0
+    addButton.Font = Enum.Font.Ubuntu
+    addButton.TextSize = 11
+    addButton.Text = "+"
+    addButton.AutoButtonColor = false
+    addButton.LayoutOrder = 999
+    addButton.ZIndex = 13
+    addButton.Parent = swatchRow
+    theme:bind(addButton, "BackgroundColor3", "Field")
+    theme:bind(addButton, "TextColor3", "TextDim")
+
+    local addStroke = Instance.new("UIStroke")
+    addStroke.Thickness = 1
+    addStroke.Parent = addButton
+    theme:bind(addStroke, "Color", "FieldBorder")
+
     local h0, s0, v0 = default:ToHSV()
     local self = setmetatable({
         _root = root,
@@ -4224,6 +4373,8 @@ function M.new(root, row, opts)
         _label = opts.Name or "Colorpicker",
         _callback = opts.Callback,
         _listeners = {},
+        _swatches = {},
+        _swatchRow = swatchRow,
     }, Colorpicker)
 
     root:keep(swatch.Activated:Connect(function()
@@ -4304,6 +4455,18 @@ function M.new(root, row, opts)
         self:_fire()
     end))
 
+    root:keep(addButton.Activated:Connect(function()
+        root.palette:Add(self:_colour())
+    end))
+
+    -- Every colorpicker shares one palette, so each redraws when it changes.
+    root.palette:onChanged(function()
+        if not root:isAlive() then return end
+        self:_paintSwatches()
+    end)
+
+    self:_paintSwatches()
+
     self:_paint()
     return self
 end
@@ -4338,6 +4501,52 @@ function Colorpicker:_paint()
         local g = math.floor(colour.G * 255 + 0.5)
         local b = math.floor(colour.B * 255 + 0.5)
         self._input.Text = M.toHex(r, g, b, self._hasAlpha and self._a or nil)
+    end
+end
+
+-- Rebuilt wholesale rather than diffed: at most ten cells, and the palette
+-- changes only on an explicit add or delete.
+function Colorpicker:_paintSwatches()
+    for i = 1, #self._swatches do
+        -- Destroying an Instance does not remove its theme bindings, so apply()
+        -- would keep writing to a destroyed object every frame.
+        self._theme:unbind(self._swatches[i])
+        self._swatches[i]:Destroy()
+    end
+    self._swatches = {}
+
+    local colours = self._root.palette:Get()
+    for i = 1, #colours do
+        local cell = Instance.new("TextButton")
+        cell.Name = "swatch"
+        cell.Size = UDim2.fromOffset(12, 12)
+        cell.BackgroundColor3 = colours[i]
+        cell.BorderSizePixel = 0
+        cell.Text = ""
+        cell.AutoButtonColor = false
+        cell.LayoutOrder = i
+        cell.ZIndex = 13
+        cell.Parent = self._swatchRow
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Parent = cell
+        self._theme:bind(stroke, "Color", "FieldBorder")
+
+        local colour = colours[i]
+        local index = i
+
+        -- Tied to the cell's lifetime rather than root:keep, because the row is
+        -- rebuilt on every palette change and a keep per rebuild would grow the
+        -- teardown list forever.
+        cell.Activated:Connect(function()
+            self:Set(colour)
+        end)
+        cell.MouseButton2Click:Connect(function()
+            self._root.palette:Remove(index)
+        end)
+
+        table.insert(self._swatches, cell)
     end
 end
 

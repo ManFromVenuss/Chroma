@@ -8,6 +8,7 @@ local Backdrop = require("core/backdrop")
 local Config = require("core/config")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
@@ -257,11 +258,17 @@ function M.new(root, opts)
     -- handed one.
     -- Created before any page exists, because container.lua registers flags as
     -- it builds and the settings page below is itself a consumer.
-    root.config = Config.new(root, opts.ConfigFolder or opts.Name or "chroma")
+    local configFolder = opts.ConfigFolder or opts.Name or "chroma"
+
+    root.config = Config.new(root, configFolder)
     root.config:primeAutoload()
     -- coroutine.running() here is the consuming script's own thread, because
     -- Chroma:Window() is called directly from it.
     root.config:watchForCompletion(coroutine.running())
+
+    -- One palette per window, reached through root so every colorpicker shares
+    -- it without being handed one.
+    root.palette = Palette.new(root, configFolder)
 
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)

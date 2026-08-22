@@ -105,10 +105,16 @@ local FIELD_H = 16
 local FIELD_GAP = 7
 local CHEQUER = 5   -- chequerboard cell, in pixels
 
+local SWATCH = 12
+local SWATCH_GAP = 3
+local SWATCH_ROW_GAP = 6
+
 local function popupHeight(hasAlpha)
     local strips = hasAlpha and 2 or 1
     return PAD + SQUARE_H + strips * (STRIP_GAP + STRIP_H)
-        + FIELD_GAP + FIELD_H + PAD
+        + FIELD_GAP + FIELD_H
+        + SWATCH_ROW_GAP + SWATCH
+        + PAD
 end
 
 function M.new(root, row, opts)
@@ -324,6 +330,43 @@ function M.new(root, row, opts)
     inputStroke.Parent = input
     theme:bind(inputStroke, "Color", "FieldBorder")
 
+    --== saved colours ==--
+    -- Eleven cells across 162px: ten swatches and a + to save the current
+    -- colour. Left-click applies, right-click deletes.
+    local swatchRow = Instance.new("Frame")
+    swatchRow.Name = "swatches"
+    swatchRow.Position = UDim2.fromOffset(PAD, popupHeight(hasAlpha) - PAD - SWATCH)
+    swatchRow.Size = UDim2.fromOffset(INNER, SWATCH)
+    swatchRow.BackgroundTransparency = 1
+    swatchRow.BorderSizePixel = 0
+    swatchRow.ZIndex = 12
+    swatchRow.Parent = popup
+
+    local swatchLayout = Instance.new("UIListLayout")
+    swatchLayout.FillDirection = Enum.FillDirection.Horizontal
+    swatchLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    swatchLayout.Padding = UDim.new(0, SWATCH_GAP)
+    swatchLayout.Parent = swatchRow
+
+    local addButton = Instance.new("TextButton")
+    addButton.Name = "add"
+    addButton.Size = UDim2.fromOffset(SWATCH, SWATCH)
+    addButton.BorderSizePixel = 0
+    addButton.Font = Enum.Font.Ubuntu
+    addButton.TextSize = 11
+    addButton.Text = "+"
+    addButton.AutoButtonColor = false
+    addButton.LayoutOrder = 999
+    addButton.ZIndex = 13
+    addButton.Parent = swatchRow
+    theme:bind(addButton, "BackgroundColor3", "Field")
+    theme:bind(addButton, "TextColor3", "TextDim")
+
+    local addStroke = Instance.new("UIStroke")
+    addStroke.Thickness = 1
+    addStroke.Parent = addButton
+    theme:bind(addStroke, "Color", "FieldBorder")
+
     local h0, s0, v0 = default:ToHSV()
     local self = setmetatable({
         _root = root,
@@ -344,6 +387,8 @@ function M.new(root, row, opts)
         _label = opts.Name or "Colorpicker",
         _callback = opts.Callback,
         _listeners = {},
+        _swatches = {},
+        _swatchRow = swatchRow,
     }, Colorpicker)
 
     root:keep(swatch.Activated:Connect(function()
@@ -424,6 +469,18 @@ function M.new(root, row, opts)
         self:_fire()
     end))
 
+    root:keep(addButton.Activated:Connect(function()
+        root.palette:Add(self:_colour())
+    end))
+
+    -- Every colorpicker shares one palette, so each redraws when it changes.
+    root.palette:onChanged(function()
+        if not root:isAlive() then return end
+        self:_paintSwatches()
+    end)
+
+    self:_paintSwatches()
+
     self:_paint()
     return self
 end
@@ -458,6 +515,52 @@ function Colorpicker:_paint()
         local g = math.floor(colour.G * 255 + 0.5)
         local b = math.floor(colour.B * 255 + 0.5)
         self._input.Text = M.toHex(r, g, b, self._hasAlpha and self._a or nil)
+    end
+end
+
+-- Rebuilt wholesale rather than diffed: at most ten cells, and the palette
+-- changes only on an explicit add or delete.
+function Colorpicker:_paintSwatches()
+    for i = 1, #self._swatches do
+        -- Destroying an Instance does not remove its theme bindings, so apply()
+        -- would keep writing to a destroyed object every frame.
+        self._theme:unbind(self._swatches[i])
+        self._swatches[i]:Destroy()
+    end
+    self._swatches = {}
+
+    local colours = self._root.palette:Get()
+    for i = 1, #colours do
+        local cell = Instance.new("TextButton")
+        cell.Name = "swatch"
+        cell.Size = UDim2.fromOffset(12, 12)
+        cell.BackgroundColor3 = colours[i]
+        cell.BorderSizePixel = 0
+        cell.Text = ""
+        cell.AutoButtonColor = false
+        cell.LayoutOrder = i
+        cell.ZIndex = 13
+        cell.Parent = self._swatchRow
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Parent = cell
+        self._theme:bind(stroke, "Color", "FieldBorder")
+
+        local colour = colours[i]
+        local index = i
+
+        -- Tied to the cell's lifetime rather than root:keep, because the row is
+        -- rebuilt on every palette change and a keep per rebuild would grow the
+        -- teardown list forever.
+        cell.Activated:Connect(function()
+            self:Set(colour)
+        end)
+        cell.MouseButton2Click:Connect(function()
+            self._root.palette:Remove(index)
+        end)
+
+        table.insert(self._swatches, cell)
     end
 end
 
