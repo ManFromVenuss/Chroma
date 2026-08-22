@@ -579,6 +579,535 @@ end
 return M
 end
 
+__modules["core/config"] = function(require)
+-- The config manager: the pure name and diff helpers, plus the registry,
+-- restore lifecycle and file IO.
+--
+-- The helpers here are unit tested, so they stay in the Lua 5.4 / Luau
+-- intersection: no compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+local MAX_NAME = 64
+
+-- A config name becomes a filename, so it has to survive the filesystem and
+-- must not be able to escape the config folder. Returns nil for anything
+-- unusable rather than guessing a replacement.
+function M.sanitiseName(name)
+    if type(name) ~= "string" then return nil end
+
+    local s = name:gsub("^%s+", "")
+    s = s:gsub("%s+$", "")
+    -- Path separators and the characters Windows rejects in a filename.
+    s = s:gsub("[/\\:%*%?\"<>|]", "")
+    -- Leading dots hide the file, and ".." is how a traversal starts.
+    s = s:gsub("^%.+", "")
+    s = s:gsub("^%s+", "")
+    s = s:gsub("%s+$", "")
+
+    if s == "" then return nil end
+    if #s > MAX_NAME then s = s:sub(1, MAX_NAME) end
+    return s
+end
+
+-- Compares a loaded config against the registered flags.
+--
+-- `unknown` is the orphaning case -- a flag in the file with no widget, which
+-- usually means a Flag was renamed and every saved value under the old name is
+-- now stranded. It is warned about rather than passed over silently.
+--
+-- `missing` is ordinary: a config saved before an option existed.
+--
+-- Both are sorted, so the warning reads the same twice running.
+function M.diffFlags(saved, registered)
+    local unknown, missing = {}, {}
+
+    for flag in pairs(saved) do
+        if registered[flag] == nil then
+            table.insert(unknown, flag)
+        end
+    end
+    for flag in pairs(registered) do
+        if saved[flag] == nil then
+            table.insert(missing, flag)
+        end
+    end
+
+    table.sort(unknown)
+    table.sort(missing)
+    return unknown, missing
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local serialise = require("core/serialise")
+
+-- Resolved lazily: a module-scope game:GetService() runs on require, and the
+-- Lua 5.4 harness requires this file to reach the helpers above.
+local HttpService
+
+local Config = {}
+Config.__index = Config
+
+function M.new(root, folder)
+    HttpService = HttpService or game:GetService("HttpService")
+
+    return setmetatable({
+        _root = root,
+        _folder = folder,
+        _widgets = {},   -- flag -> widget
+        _opts = {},      -- flag -> the opts it was built with, for warnings
+        _pending = {},   -- flag -> encoded value, waiting for the menu to finish
+        _live = false,
+        -- Plain current values, exposed as Chroma.Flags. Maintained through the
+        -- widget contract rather than by the widgets themselves.
+        Flags = {},
+    }, Config)
+end
+
+-- Called by container.lua for every widget it builds.
+function Config:register(flag, widget)
+    if self._widgets[flag] ~= nil then
+        error(string.format("chroma: two widgets share the flag '%s'", tostring(flag)), 2)
+    end
+    self._widgets[flag] = widget
+
+    self.Flags[flag] = widget:Get()
+    widget:OnChanged(function(value)
+        self.Flags[flag] = value
+    end)
+
+    -- Before the menu is finished, saved values wait in _pending and are
+    -- applied together. After it, a widget built later catches up immediately.
+    local saved = self._pending[flag]
+    if saved ~= nil and self._live then
+        self:_apply(flag, saved)
+        self._pending[flag] = nil
+    end
+end
+
+function Config:get(flag)
+    return self._widgets[flag]
+end
+
+-- Widgets whose state is more than Get() returns say so with Save()/Load().
+function Config:_apply(flag, encoded)
+    local widget = self._widgets[flag]
+    if widget == nil then return end
+    local value = serialise.decode(encoded)
+    if value == nil then return end
+
+    if type(widget.Load) == "function" then
+        widget:Load(value)
+    else
+        widget:Set(value)
+    end
+    self.Flags[flag] = widget:Get()
+end
+
+-- A single flag erroring (Keybind:Load calling SetMode on a corrupt value, for
+-- instance) must not stop every flag after it in iteration order from
+-- applying -- pairs() order is arbitrary, so that would drop configs at
+-- random. Isolate each apply and warn with enough to find the bad flag.
+local function applyOne(self, flag, value, configName)
+    local ok, err = pcall(self._apply, self, flag, value)
+    if not ok then
+        warn(string.format("[Chroma] config '%s' flag '%s' failed to load: %s",
+            tostring(configName), tostring(flag), tostring(err)))
+    end
+end
+
+function Config:_snapshot()
+    local out = {}
+    for flag, widget in pairs(self._widgets) do
+        local value
+        if type(widget.Save) == "function" then
+            value = widget:Save()
+        else
+            value = widget:Get()
+        end
+        local encoded = serialise.encode(value)
+        if encoded ~= nil then out[flag] = encoded end
+    end
+    return out
+end
+
+--== file IO ==--
+-- Executors sandbox these to their own workspace folder, so paths are relative
+-- and no absolute path is ever built.
+
+local function ensureFolder(path)
+    if isfolder and not isfolder(path) then
+        if makefolder then makefolder(path) end
+    end
+end
+
+function Config:_configPath(name)
+    return self._folder .. "/configs/" .. name .. ".json"
+end
+
+function Config:isAvailable()
+    return not self._root:isDegraded("config")
+end
+
+function Config:ensureFolders()
+    if not self:isAvailable() then return end
+    ensureFolder(self._folder)
+    ensureFolder(self._folder .. "/configs")
+end
+
+function Config:List()
+    if not self:isAvailable() or not listfiles then return {} end
+    self:ensureFolders()
+
+    local out = {}
+    local ok, files = pcall(listfiles, self._folder .. "/configs")
+    if not ok then return out end
+
+    for i = 1, #files do
+        local name = files[i]:match("([^/\\]+)%.json$")
+        if name then table.insert(out, name) end
+    end
+    table.sort(out)
+    return out
+end
+
+function Config:Save(rawName)
+    if not self:isAvailable() then return false, "configs unavailable" end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false, "invalid config name" end
+
+    self:ensureFolders()
+
+    -- Unknown flags are carried through rather than dropped: a config written
+    -- by a build with more widgets should survive a round trip through one with
+    -- fewer, or loading a script twice would quietly prune it.
+    local data = self:_snapshot()
+    for flag, value in pairs(self._pending) do
+        if self._widgets[flag] == nil then data[flag] = value end
+    end
+
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode(data)
+    end)
+    if not ok then return false, "could not encode config" end
+
+    local written = pcall(writefile, self:_configPath(name), encoded)
+    if not written then return false, "could not write config" end
+    return true, name
+end
+
+function Config:Load(rawName)
+    if not self:isAvailable() then return false, "configs unavailable" end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false, "invalid config name" end
+
+    local path = self:_configPath(name)
+    if isfile and not isfile(path) then return false, "no such config" end
+
+    local ok, text = pcall(readfile, path)
+    if not ok then return false, "could not read config" end
+
+    local decoded, data = pcall(function()
+        return HttpService:JSONDecode(text)
+    end)
+    if not decoded or type(data) ~= "table" then
+        -- Corrupt on disk. Warn and leave the menu alone rather than erroring:
+        -- a bad file must not cost the user their whole session.
+        warn("[Chroma] config '" .. name .. "' is unreadable and was ignored")
+        return false, "corrupt config"
+    end
+
+    local unknown, _ = M.diffFlags(data, self._widgets)
+    if #unknown > 0 then
+        -- Almost always a renamed Flag, which strands every value saved under
+        -- the old name. Silence here is what makes that expensive to find.
+        warn("[Chroma] config '" .. name .. "' has " .. #unknown ..
+            " flag(s) with no widget: " .. table.concat(unknown, ", "))
+    end
+
+    for flag, value in pairs(data) do
+        if self._widgets[flag] ~= nil then
+            applyOne(self, flag, value, name)
+        else
+            self._pending[flag] = value
+        end
+    end
+    return true, name
+end
+
+function Config:Delete(rawName)
+    if not self:isAvailable() then return false, "configs unavailable" end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false, "invalid config name" end
+
+    local path = self:_configPath(name)
+    if isfile and not isfile(path) then return false, "no such config" end
+    if not delfile then return false, "delfile unavailable" end
+
+    local ok = pcall(delfile, path)
+    if not ok then return false, "could not delete config" end
+    return true, name
+end
+
+--== autoload ==--
+-- Chroma:Window() returns before a single widget exists, so there is no natural
+-- moment at which the menu is known to be built. Saved values therefore wait in
+-- _pending until one of two signals, then apply with an ordinary Set so
+-- callbacks fire once, normally.
+
+-- No new widget for this long also counts as finished. It exists for scripts
+-- that end in a render loop, whose thread never dies.
+local QUIET = 1
+
+function Config:_autoloadPath()
+    return self._folder .. "/autoload.txt"
+end
+
+function Config:GetAutoload()
+    if not self:isAvailable() or not isfile then return nil end
+    local path = self:_autoloadPath()
+    if not isfile(path) then return nil end
+    local ok, text = pcall(readfile, path)
+    if not ok then return nil end
+    return M.sanitiseName(text)
+end
+
+function Config:SetAutoload(rawName)
+    if not self:isAvailable() then return false end
+    self:ensureFolders()
+
+    if rawName == nil then
+        if delfile and isfile and isfile(self:_autoloadPath()) then
+            pcall(delfile, self:_autoloadPath())
+        end
+        return true
+    end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false end
+    return pcall(writefile, self:_autoloadPath(), name) and true or false
+end
+
+-- Reads the marked config into _pending without touching any widget. Called
+-- during Window(), when there are none yet.
+function Config:primeAutoload()
+    local name = self:GetAutoload()
+    if name == nil then return end
+
+    local path = self:_configPath(name)
+    if isfile and not isfile(path) then return end
+
+    local ok, text = pcall(readfile, path)
+    if not ok then return end
+
+    local decoded, data = pcall(function()
+        return HttpService:JSONDecode(text)
+    end)
+    if not decoded or type(data) ~= "table" then
+        warn("[Chroma] autoload config '" .. name .. "' is unreadable and was ignored")
+        return
+    end
+
+    for flag, value in pairs(data) do
+        self._pending[flag] = value
+    end
+    self._autoloadName = name
+end
+
+-- Applies everything still pending, then marks the manager live so any widget
+-- built afterwards catches up on registration instead.
+--
+-- A flag still unmatched here is not yet known to be orphaned: finish() can
+-- fire on the quiet timeout while the consumer script is merely slow (an
+-- HttpGet mid-build, say), before every widget has registered. Such a flag
+-- stays in _pending, where a late registration or the next Save still finds
+-- it, so no warning is given here -- it would be a guess, and wrong for the
+-- common slow-script case. A flag that really is orphaned is surfaced
+-- unambiguously later, by an explicit LoadConfig call.
+function Config:finish()
+    if self._live then return end
+    self._live = true
+
+    local applied = 0
+    for flag, value in pairs(self._pending) do
+        if self._widgets[flag] ~= nil then
+            applyOne(self, flag, value, self._autoloadName)
+            self._pending[flag] = nil
+            applied = applied + 1
+        end
+    end
+
+    return applied
+end
+
+-- Watches for the menu being finished. `thread` is the consumer's script
+-- thread, captured in Window(): once it is dead, the script body has run to
+-- completion. That handles a script yielding mid-build -- an HttpGet leaves the
+-- thread suspended, not dead -- which a deferred call does not.
+--
+-- LoadConfig() always works by hand, so if both signals somehow fail the cost
+-- is that autoload did not fire, not that configs are broken.
+function Config:watchForCompletion(thread)
+    local RunService = game:GetService("RunService")
+    local waited = 0
+    local lastCount = 0
+
+    local conn
+    conn = RunService.Heartbeat:Connect(function(dt)
+        if not self._root:isAlive() or self._live then
+            conn:Disconnect()
+            return
+        end
+
+        local count = 0
+        for _ in pairs(self._widgets) do count = count + 1 end
+        if count ~= lastCount then
+            lastCount = count
+            waited = 0
+        else
+            waited = waited + dt
+        end
+
+        local dead = thread == nil or coroutine.status(thread) == "dead"
+        if dead or waited >= QUIET then
+            conn:Disconnect()
+            self:finish()
+        end
+    end)
+    self._root:keep(conn)
+end
+
+return M
+end
+
+__modules["core/configui"] = function(require)
+-- The Configs sub-tab of the settings page.
+--
+-- Split out of settings.lua, which is already a long surface file, and because
+-- this half is the only part that talks to the config manager.
+
+local M = {}
+
+function M.build(root, window, tab)
+    local config = root.config
+    local column = tab:Column()
+
+    local box = column:Container("Configs")
+
+    if not config:isAvailable() then
+        -- The executor has no writefile. Say so once, plainly, rather than
+        -- offering buttons that quietly do nothing.
+        box:Label({ Text = "Configs need writefile, which this executor" })
+        box:Label({ Text = "does not provide." })
+        return
+    end
+
+    local list, nameField, autoToggle
+
+    local function refresh(select)
+        local names = config:List()
+        list:SetItems(names)
+        if select ~= nil then
+            list:Set(select)
+        end
+        -- The toggle tracks the selected entry, so it has to be re-read
+        -- whenever the selection or the list changes.
+        local current = list:Get()
+        autoToggle:Set(current ~= nil and current == config:GetAutoload(), true)
+    end
+
+    -- All three take Flag = false: they are the config browser, not settings.
+    -- Saving them would mean loading a config moved this UI around.
+    list = box:ListBox({
+        Flag = false,
+        Items = config:List(),
+        Rows = 6,
+        Default = config:GetAutoload(),
+        Callback = function(name)
+            autoToggle:Set(name ~= nil and name == config:GetAutoload(), true)
+            nameField:Set(name or "")
+        end,
+    })
+
+    nameField = box:TextBox({
+        Name = "Name",
+        Flag = false,
+        Placeholder = "config name",
+        Default = config:GetAutoload() or "",
+    })
+
+    box:Button({
+        Text = "Save",
+        Callback = function()
+            local ok, result = config:Save(nameField:Get())
+            if ok then
+                refresh(result)
+            else
+                warn("[Chroma] save failed: " .. tostring(result))
+            end
+        end,
+    })
+
+    box:Button({
+        Text = "Load",
+        Callback = function()
+            local name = list:Get()
+            if name == nil then return end
+            local ok, result = config:Load(name)
+            if not ok then
+                warn("[Chroma] load failed: " .. tostring(result))
+            end
+        end,
+    })
+
+    box:Button({
+        Text = "Delete",
+        Callback = function()
+            local name = list:Get()
+            if name == nil then return end
+            if config:GetAutoload() == name then
+                config:SetAutoload(nil)
+            end
+            local ok, result = config:Delete(name)
+            if ok then
+                refresh(nil)
+            else
+                warn("[Chroma] delete failed: " .. tostring(result))
+            end
+        end,
+    })
+
+    box:Button({ Text = "Refresh", Callback = function() refresh(list:Get()) end })
+
+    box:Separator()
+
+    -- A toggle rather than a label showing the current autoload, because no
+    -- widget offers a label that can be rewritten cleanly. It reflects the
+    -- SELECTED config, so it changes meaning as the selection moves.
+    autoToggle = box:Toggle({
+        Name = "Autoload selected",
+        Flag = false,
+        Description = "Loads the selected config the next time this script runs.",
+        Callback = function(on)
+            local name = list:Get()
+            if on and name ~= nil then
+                config:SetAutoload(name)
+            elseif not on then
+                config:SetAutoload(nil)
+            end
+        end,
+    })
+
+    refresh(config:GetAutoload())
+end
+
+return M
+end
+
 __modules["core/container"] = function(require)
 -- A titled section: the title sits outside a bordered box, on the backdrop,
 -- as gamesense does. The box height is derived from its rows via
@@ -669,11 +1198,36 @@ for name, widget in pairs(widgets) do
     Container[name] = function(self, opts)
         opts = opts or {}
         self._order = self._order + 1
-        -- widget.FullWidth is a declared property, not a hardcoded list, so
-        -- this stays widget-agnostic.
+        -- widget.FullWidth and widget.Stateless are declared properties, not
+        -- hardcoded lists, so this stays widget-agnostic.
         local row = Row.new(self._root, self._box, opts, widget.FullWidth)
         row.frame.LayoutOrder = self._order
-        return widget.new(self._root, row, opts)
+        local built = widget.new(self._root, row, opts)
+
+        -- A stateful widget without a Flag would be silently dropped from every
+        -- config, and the omission would only surface as a user losing that one
+        -- setting. Deriving a flag from the widget's title instead is worse: a
+        -- rename then orphans the saved value with nothing in the code hinting
+        -- the title was load-bearing.
+        -- Flag = false is an explicit opt-out, for a stateful widget that is
+        -- part of the interface rather than a setting -- the config browser's
+        -- own list and name field, for instance. Writing those into a user's
+        -- config would mean loading one moved the browser around.
+        if widget.Stateless then
+            if opts.Flag ~= nil then
+                error(string.format(
+                    "chroma: %s '%s' holds no state, so Flag does nothing here",
+                    name, tostring(opts.Name or opts.Text)), 2)
+            end
+        elseif opts.Flag == nil then
+            error(string.format(
+                "chroma: %s '%s' needs a Flag (or Flag = false if it is not a setting)",
+                name, tostring(opts.Name)), 2)
+        elseif opts.Flag ~= false then
+            self._root.config:register(opts.Flag, built)
+        end
+
+        return built
     end
 end
 
@@ -1275,6 +1829,105 @@ end
 return M
 end
 
+__modules["core/palette"] = function(require)
+-- The saved-colour palette, shared by every colorpicker in the window.
+--
+-- Global rather than per-config, in its own file: a palette is a preference
+-- about how you work, not a setting of one config, and loading a config should
+-- not silently swap your swatches.
+
+local serialise = require("core/serialise")
+
+local M = {}
+
+local MAX = 10
+
+local Palette = {}
+Palette.__index = Palette
+
+function M.new(root, folder)
+    local self = setmetatable({
+        _root = root,
+        _path = folder .. "/palette.json",
+        _colours = {},
+        _listeners = {},
+    }, Palette)
+    self:_read()
+    return self
+end
+
+function Palette:Get()
+    return self._colours
+end
+
+function Palette:onChanged(fn)
+    table.insert(self._listeners, fn)
+end
+
+function Palette:_notify()
+    for i = 1, #self._listeners do
+        self._listeners[i]()
+    end
+end
+
+function Palette:Add(colour)
+    if typeof(colour) ~= "Color3" then return end
+    for i = 1, #self._colours do
+        if self._colours[i] == colour then return end
+    end
+    table.insert(self._colours, colour)
+    -- Oldest out first: the row is a fixed width, and silently refusing to add
+    -- would read as the button being broken.
+    while #self._colours > MAX do
+        table.remove(self._colours, 1)
+    end
+    self:_write()
+    self:_notify()
+end
+
+function Palette:Remove(index)
+    if self._colours[index] == nil then return end
+    table.remove(self._colours, index)
+    self:_write()
+    self:_notify()
+end
+
+function Palette:_read()
+    if self._root:isDegraded("config") or not isfile then return end
+    if not isfile(self._path) then return end
+
+    local ok, text = pcall(readfile, self._path)
+    if not ok then return end
+
+    local HttpService = game:GetService("HttpService")
+    local decoded, data = pcall(function() return HttpService:JSONDecode(text) end)
+    if not decoded or type(data) ~= "table" then return end
+
+    for i = 1, #data do
+        local colour = serialise.decode(data[i])
+        if typeof(colour) == "Color3" then
+            table.insert(self._colours, colour)
+        end
+    end
+end
+
+function Palette:_write()
+    if self._root:isDegraded("config") or not writefile then return end
+
+    local out = {}
+    for i = 1, #self._colours do
+        out[i] = serialise.encode(self._colours[i])
+    end
+
+    local HttpService = game:GetService("HttpService")
+    local ok, text = pcall(function() return HttpService:JSONEncode(out) end)
+    if not ok then return end
+    pcall(writefile, self._path, text)
+end
+
+return M
+end
+
 __modules["core/popup"] = function(require)
 -- The popup overlay: placement maths, plus the single-slot manager.
 --
@@ -1861,6 +2514,102 @@ end
 return M
 end
 
+__modules["core/serialise"] = function(require)
+-- Type tagging, so the values Chroma stores survive JSON.
+--
+-- JSON has no Color3 and no EnumItem, and an executor's JSONEncode will either
+-- drop them or throw. Each becomes a plain table carrying a __t tag, and decode
+-- turns it back.
+--
+-- Pure: dispatches on typeof() and builds Roblox datatypes, but calls no
+-- Instance method, so it is unit tested. Lua 5.4 / Luau intersection -- no
+-- compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+local TAG = "__t"
+
+local function byte(channel)
+    local n = math.floor(channel * 255 + 0.5)
+    if n < 0 then return 0 end
+    if n > 255 then return 255 end
+    return n
+end
+
+-- Returns a JSON-safe value, or nil for anything unstorable. Unstorable is not
+-- an error: a consumer may hand a widget something odd, and losing one flag is
+-- better than losing the whole config.
+function M.encode(value)
+    local kind = typeof(value)
+
+    if kind == "boolean" or kind == "number" or kind == "string" then
+        return value
+    end
+
+    if kind == "Color3" then
+        return { [TAG] = "Color3", r = byte(value.R), g = byte(value.G), b = byte(value.B) }
+    end
+
+    if kind == "EnumItem" then
+        -- By name rather than by value: enum numbering is not stable across
+        -- Roblox versions, and a name is legible in the saved file.
+        --
+        -- tostring(EnumType) returns e.g. "KeyCode". Reading EnumType.Name
+        -- looks tidier but is a Roblox trap: the Enum object has no Name
+        -- property, and the local test harness happens to stub one, so the
+        -- suite passes green while the real code throws on the first save.
+        return { [TAG] = "Enum", enum = tostring(value.EnumType), name = value.Name }
+    end
+
+    if kind == "table" then
+        local out = {}
+        for k, v in pairs(value) do
+            local encoded = M.encode(v)
+            if encoded ~= nil then out[k] = encoded end
+        end
+        return out
+    end
+
+    return nil
+end
+
+function M.decode(value)
+    if type(value) ~= "table" then
+        -- Booleans, numbers and strings need nothing; so does nil.
+        return value
+    end
+
+    local tag = value[TAG]
+
+    if tag == "Color3" then
+        return Color3.fromRGB(value.r, value.g, value.b)
+    end
+
+    if tag == "Enum" then
+        local group = Enum[value.enum]
+        if group == nil then return nil end
+        -- Indexing a missing item throws in Roblox, so probe it.
+        local ok, item = pcall(function() return group[value.name] end)
+        if not ok then return nil end
+        return item
+    end
+
+    if tag ~= nil then
+        -- A tag this version does not know: written by a newer Chroma. Drop the
+        -- one value rather than taking the menu down.
+        return nil
+    end
+
+    local out = {}
+    for k, v in pairs(value) do
+        out[k] = M.decode(v)
+    end
+    return out
+end
+
+return M
+end
+
 __modules["core/settings"] = function(require)
 -- The built-in settings page: a pinned rail entry that configures Chroma itself.
 --
@@ -1869,6 +2618,7 @@ __modules["core/settings"] = function(require)
 -- infrastructure, only a surface. Settings are not persisted yet.
 
 local M = {}
+local ConfigUI = require("core/configui")
 
 -- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
 -- so no image asset is needed; a Lucide asset id could replace it here
@@ -1879,7 +2629,11 @@ function M.build(root, window)
     local theme = root.theme
 
     local page = window:Page({ Name = "Settings", Icon = GEAR, Pinned = true })
-    local left, right = page:Column(), page:Column()
+
+    -- Sub-tabs rather than one long page: the two halves have nothing to do
+    -- with each other, and appearance is the one people open repeatedly.
+    local appearance = page:Tab("Appearance")
+    local left, right = appearance:Column(), appearance:Column()
 
     --== accent ==--
     local accent = left:Container("Accent")
@@ -1894,6 +2648,7 @@ function M.build(root, window)
     local colour
     local mode = accent:Dropdown({
         Name = "Mode",
+        Flag = "chroma_accent_mode",
         Options = { "RGB", "Gradient", "Static" },
         -- Read from the theme rather than assuming: a window constructed with
         -- Gradient = false and a static accent would otherwise boot showing
@@ -1914,6 +2669,7 @@ function M.build(root, window)
 
     colour = accent:Colorpicker({
         Name = "Colour",
+        Flag = "chroma_accent_colour",
         Default = theme:get("Accent"),
         Description = "Used by Gradient and Static; RGB picks its own hue.",
         Callback = function(value)
@@ -1924,7 +2680,7 @@ function M.build(root, window)
     })
 
     accent:Slider({
-        Name = "Speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
+        Name = "Speed", Flag = "chroma_accent_speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
         Description = "Hue rotations per second while Mode is RGB.",
         Callback = function(value)
             window:setAccentSpeed(value)
@@ -1935,7 +2691,7 @@ function M.build(root, window)
     local shell = left:Container("Window")
 
     shell:Toggle({
-        Name = "Animations", Default = true,
+        Name = "Animations", Flag = "chroma_animations", Default = true,
         Description = "The two-stage open and close slide. Turn off for an instant show and hide.",
         Callback = function(value)
             window:setAnimations(value)
@@ -1943,7 +2699,7 @@ function M.build(root, window)
     })
 
     shell:Slider({
-        Name = "Particles", Min = 0, Max = 80, Default = 34,
+        Name = "Particles", Flag = "chroma_particles", Min = 0, Max = 80, Default = 34,
         Description = "Drifting stars over the backdrop.",
         Callback = function(value)
             window:setParticleCount(value)
@@ -1951,7 +2707,7 @@ function M.build(root, window)
     })
 
     shell:Keybind({
-        Name = "Toggle key", Default = window._toggleKey, Mode = "Always",
+        Name = "Toggle key", Flag = "chroma_toggle_key", Default = window._toggleKey, Mode = "Always",
         Description = "Right-click for the mode menu. Escape while capturing clears the bind.",
         Callback = function(bind)
             window:setToggleKey(bind)
@@ -1962,7 +2718,7 @@ function M.build(root, window)
     local pointer = right:Container("Cursor")
 
     pointer:Dropdown({
-        Name = "Style", Options = { "Cross", "None" }, Default = "Cross",
+        Name = "Style", Flag = "chroma_cursor_style", Options = { "Cross", "None" }, Default = "Cross",
         Description = "None restores the operating system pointer over the menu.",
         Callback = function(value)
             window:setCursor({ Style = value })
@@ -1970,21 +2726,21 @@ function M.build(root, window)
     })
 
     pointer:Colorpicker({
-        Name = "Colour", Default = Color3.fromRGB(255, 255, 255),
+        Name = "Colour", Flag = "chroma_cursor_colour", Default = Color3.fromRGB(255, 255, 255),
         Callback = function(value)
             window:setCursor({ Color = value })
         end,
     })
 
     pointer:Slider({
-        Name = "Size", Min = 3, Max = 14, Default = 7,
+        Name = "Size", Flag = "chroma_cursor_size", Min = 3, Max = 14, Default = 7,
         Callback = function(value)
             window:setCursor({ Size = value })
         end,
     })
 
     pointer:Slider({
-        Name = "Gap", Min = 0, Max = 6, Default = 0,
+        Name = "Gap", Flag = "chroma_cursor_gap", Min = 0, Max = 6, Default = 0,
         Description = "Opens a hole at the centre of the cross.",
         Callback = function(value)
             window:setCursor({ Gap = value })
@@ -1992,12 +2748,14 @@ function M.build(root, window)
     })
 
     pointer:Toggle({
-        Name = "Outline", Default = true,
+        Name = "Outline", Flag = "chroma_cursor_outline", Default = true,
         Description = "A black border under the cross, so it stays visible over bright ground.",
         Callback = function(value)
             window:setCursor({ Outline = value })
         end,
     })
+
+    ConfigUI.build(root, window, page:Tab("Configs"))
 
     return page
 end
@@ -2439,8 +3197,10 @@ __modules["core/window"] = function(require)
 -- backdrop band below where containers sit.
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
+local Config = require("core/config")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
@@ -2688,6 +3448,20 @@ function M.new(root, opts)
     -- The tooltip and popup managers are owned by the window and reached
     -- through root, so row.lua and every widget can use them without being
     -- handed one.
+    -- Created before any page exists, because container.lua registers flags as
+    -- it builds and the settings page below is itself a consumer.
+    local configFolder = opts.ConfigFolder or opts.Name or "chroma"
+
+    root.config = Config.new(root, configFolder)
+    root.config:primeAutoload()
+    -- coroutine.running() here is the consuming script's own thread, because
+    -- Chroma:Window() is called directly from it.
+    root.config:watchForCompletion(coroutine.running())
+
+    -- One palette per window, reached through root so every colorpicker shares
+    -- it without being handed one.
+    root.palette = Palette.new(root, configFolder)
+
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
@@ -2928,6 +3702,19 @@ function Window:setAccent(accent)
     self._theme:apply()
 end
 
+-- The widget behind a flag. Chroma.Flags carries the plain value; anything
+-- richer -- a keybind's IsHeld, a colour's alpha -- comes from here.
+function Window:Flag(flag)
+    return self._root.config:get(flag)
+end
+
+function Window:SaveConfig(name) return self._root.config:Save(name) end
+function Window:LoadConfig(name) return self._root.config:Load(name) end
+function Window:DeleteConfig(name) return self._root.config:Delete(name) end
+function Window:ListConfigs() return self._root.config:List() end
+function Window:GetAutoload() return self._root.config:GetAutoload() end
+function Window:SetAutoload(name) return self._root.config:SetAutoload(name) end
+
 -- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)
@@ -2974,6 +3761,9 @@ function Chroma:Window(opts)
     end
     self.root = Root.new(opts)
     self.window = WindowModule.new(self.root, opts)
+    -- The same table the config manager maintains, not a copy: a consumer
+    -- polling Chroma.Flags.foo every frame reads live state.
+    self.Flags = self.root.config.Flags
     return self.window
 end
 
@@ -2986,6 +3776,7 @@ function Chroma:Unload()
         self.root = nil
     end
     self.window = nil
+    self.Flags = nil
 end
 
 return Chroma
@@ -3130,6 +3921,9 @@ local M = {}
 
 -- No control slot. See label.lua for the rationale.
 M.FullWidth = true
+
+-- A button is an action, not a value, so there is nothing to save.
+M.Stateless = true
 
 local Button = {}
 Button.__index = Button
@@ -3315,10 +4109,16 @@ local FIELD_H = 16
 local FIELD_GAP = 7
 local CHEQUER = 5   -- chequerboard cell, in pixels
 
+local SWATCH = 12
+local SWATCH_GAP = 3
+local SWATCH_ROW_GAP = 6
+
 local function popupHeight(hasAlpha)
     local strips = hasAlpha and 2 or 1
     return PAD + SQUARE_H + strips * (STRIP_GAP + STRIP_H)
-        + FIELD_GAP + FIELD_H + PAD
+        + FIELD_GAP + FIELD_H
+        + SWATCH_ROW_GAP + SWATCH
+        + PAD
 end
 
 function M.new(root, row, opts)
@@ -3534,6 +4334,43 @@ function M.new(root, row, opts)
     inputStroke.Parent = input
     theme:bind(inputStroke, "Color", "FieldBorder")
 
+    --== saved colours ==--
+    -- Eleven cells across 162px: ten swatches and a + to save the current
+    -- colour. Left-click applies, right-click deletes.
+    local swatchRow = Instance.new("Frame")
+    swatchRow.Name = "swatches"
+    swatchRow.Position = UDim2.fromOffset(PAD, popupHeight(hasAlpha) - PAD - SWATCH)
+    swatchRow.Size = UDim2.fromOffset(INNER, SWATCH)
+    swatchRow.BackgroundTransparency = 1
+    swatchRow.BorderSizePixel = 0
+    swatchRow.ZIndex = 12
+    swatchRow.Parent = popup
+
+    local swatchLayout = Instance.new("UIListLayout")
+    swatchLayout.FillDirection = Enum.FillDirection.Horizontal
+    swatchLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    swatchLayout.Padding = UDim.new(0, SWATCH_GAP)
+    swatchLayout.Parent = swatchRow
+
+    local addButton = Instance.new("TextButton")
+    addButton.Name = "add"
+    addButton.Size = UDim2.fromOffset(SWATCH, SWATCH)
+    addButton.BorderSizePixel = 0
+    addButton.Font = Enum.Font.Ubuntu
+    addButton.TextSize = 11
+    addButton.Text = "+"
+    addButton.AutoButtonColor = false
+    addButton.LayoutOrder = 999
+    addButton.ZIndex = 13
+    addButton.Parent = swatchRow
+    theme:bind(addButton, "BackgroundColor3", "Field")
+    theme:bind(addButton, "TextColor3", "TextDim")
+
+    local addStroke = Instance.new("UIStroke")
+    addStroke.Thickness = 1
+    addStroke.Parent = addButton
+    theme:bind(addStroke, "Color", "FieldBorder")
+
     local h0, s0, v0 = default:ToHSV()
     local self = setmetatable({
         _root = root,
@@ -3554,6 +4391,8 @@ function M.new(root, row, opts)
         _label = opts.Name or "Colorpicker",
         _callback = opts.Callback,
         _listeners = {},
+        _swatches = {},
+        _swatchRow = swatchRow,
     }, Colorpicker)
 
     root:keep(swatch.Activated:Connect(function()
@@ -3634,6 +4473,18 @@ function M.new(root, row, opts)
         self:_fire()
     end))
 
+    root:keep(addButton.Activated:Connect(function()
+        root.palette:Add(self:_colour())
+    end))
+
+    -- Every colorpicker shares one palette, so each redraws when it changes.
+    root.palette:onChanged(function()
+        if not root:isAlive() then return end
+        self:_paintSwatches()
+    end)
+
+    self:_paintSwatches()
+
     self:_paint()
     return self
 end
@@ -3668,6 +4519,52 @@ function Colorpicker:_paint()
         local g = math.floor(colour.G * 255 + 0.5)
         local b = math.floor(colour.B * 255 + 0.5)
         self._input.Text = M.toHex(r, g, b, self._hasAlpha and self._a or nil)
+    end
+end
+
+-- Rebuilt wholesale rather than diffed: at most ten cells, and the palette
+-- changes only on an explicit add or delete.
+function Colorpicker:_paintSwatches()
+    for i = 1, #self._swatches do
+        -- Destroying an Instance does not remove its theme bindings, so apply()
+        -- would keep writing to a destroyed object every frame.
+        self._theme:unbind(self._swatches[i])
+        self._swatches[i]:Destroy()
+    end
+    self._swatches = {}
+
+    local colours = self._root.palette:Get()
+    for i = 1, #colours do
+        local cell = Instance.new("TextButton")
+        cell.Name = "swatch"
+        cell.Size = UDim2.fromOffset(12, 12)
+        cell.BackgroundColor3 = colours[i]
+        cell.BorderSizePixel = 0
+        cell.Text = ""
+        cell.AutoButtonColor = false
+        cell.LayoutOrder = i
+        cell.ZIndex = 13
+        cell.Parent = self._swatchRow
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Parent = cell
+        self._theme:bind(stroke, "Color", "FieldBorder")
+
+        local colour = colours[i]
+        local index = i
+
+        -- Tied to the cell's lifetime rather than root:keep, because the row is
+        -- rebuilt on every palette change and a keep per rebuild would grow the
+        -- teardown list forever.
+        cell.Activated:Connect(function()
+            self:Set(colour)
+        end)
+        cell.MouseButton2Click:Connect(function()
+            self._root.palette:Remove(index)
+        end)
+
+        table.insert(self._swatches, cell)
     end
 end
 
@@ -3722,6 +4619,17 @@ function Colorpicker:SetAlpha(a, silent)
     self:_paint()
     if silent or not changed then return end
     self:_fire()
+end
+
+-- Alpha is state that Get() returns second, so it travels alongside the colour.
+function Colorpicker:Save()
+    return { colour = self:_colour(), alpha = self._a }
+end
+
+function Colorpicker:Load(t)
+    if type(t) ~= "table" then return end
+    if t.alpha ~= nil then self:SetAlpha(t.alpha, true) end
+    self:Set(t.colour)
 end
 
 function Colorpicker:OnChanged(fn)
@@ -4460,6 +5368,19 @@ function Keybind:IsHeld()
     return self._down
 end
 
+-- Get() returns only the bind, but the mode is state as well, so the config
+-- manager takes both through Save/Load rather than widening the shared contract
+-- for the two widgets that need it.
+function Keybind:Save()
+    return { bind = self._bind, mode = self._mode }
+end
+
+function Keybind:Load(t)
+    if type(t) ~= "table" then return end
+    if t.mode ~= nil then self:SetMode(t.mode) end
+    self:Set(t.bind)
+end
+
 function Keybind:OnChanged(fn)
     table.insert(self._listeners, fn)
 end
@@ -4484,6 +5405,10 @@ local M = {}
 -- full-width and no control slot is created. A widget must never resize the
 -- row itself -- that is layout, and layout belongs to row.lua.
 M.FullWidth = true
+
+-- A label's text is presentation, not user state, so it takes no Flag and is
+-- never written to a config.
+M.Stateless = true
 
 local Label = {}
 Label.__index = Label
@@ -4719,6 +5644,9 @@ local M = {}
 
 -- No control slot: a separator spans the row. See label.lua for the rationale.
 M.FullWidth = true
+
+-- Nothing to persist: a separator has no value.
+M.Stateless = true
 
 local Separator = {}
 Separator.__index = Separator

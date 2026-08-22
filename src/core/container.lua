@@ -87,11 +87,36 @@ for name, widget in pairs(widgets) do
     Container[name] = function(self, opts)
         opts = opts or {}
         self._order = self._order + 1
-        -- widget.FullWidth is a declared property, not a hardcoded list, so
-        -- this stays widget-agnostic.
+        -- widget.FullWidth and widget.Stateless are declared properties, not
+        -- hardcoded lists, so this stays widget-agnostic.
         local row = Row.new(self._root, self._box, opts, widget.FullWidth)
         row.frame.LayoutOrder = self._order
-        return widget.new(self._root, row, opts)
+        local built = widget.new(self._root, row, opts)
+
+        -- A stateful widget without a Flag would be silently dropped from every
+        -- config, and the omission would only surface as a user losing that one
+        -- setting. Deriving a flag from the widget's title instead is worse: a
+        -- rename then orphans the saved value with nothing in the code hinting
+        -- the title was load-bearing.
+        -- Flag = false is an explicit opt-out, for a stateful widget that is
+        -- part of the interface rather than a setting -- the config browser's
+        -- own list and name field, for instance. Writing those into a user's
+        -- config would mean loading one moved the browser around.
+        if widget.Stateless then
+            if opts.Flag ~= nil then
+                error(string.format(
+                    "chroma: %s '%s' holds no state, so Flag does nothing here",
+                    name, tostring(opts.Name or opts.Text)), 2)
+            end
+        elseif opts.Flag == nil then
+            error(string.format(
+                "chroma: %s '%s' needs a Flag (or Flag = false if it is not a setting)",
+                name, tostring(opts.Name)), 2)
+        elseif opts.Flag ~= false then
+            self._root.config:register(opts.Flag, built)
+        end
+
+        return built
     end
 end
 

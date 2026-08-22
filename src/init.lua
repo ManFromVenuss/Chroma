@@ -11,6 +11,9 @@ function Chroma:Window(opts)
     end
     self.root = Root.new(opts)
     self.window = WindowModule.new(self.root, opts)
+    -- The same table the config manager maintains, not a copy: a consumer
+    -- polling Chroma.Flags.foo every frame reads live state.
+    self.Flags = self.root.config.Flags
     return self.window
 end
 
@@ -23,6 +26,7 @@ function Chroma:Unload()
         self.root = nil
     end
     self.window = nil
+    self.Flags = nil
 end
 
 return Chroma

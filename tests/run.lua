@@ -15,6 +15,8 @@ local files = {
     "tests.test_popup",
     "tests.test_keybind",
     "tests.test_colorpicker",
+    "tests.test_serialise",
+    "tests.test_config",
 }
 
 local passed, failed = 0, 0

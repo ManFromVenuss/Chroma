@@ -10,6 +10,9 @@ local M = {}
 -- No control slot. See label.lua for the rationale.
 M.FullWidth = true
 
+-- A button is an action, not a value, so there is nothing to save.
+M.Stateless = true
+
 local Button = {}
 Button.__index = Button
 

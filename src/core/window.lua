@@ -5,8 +5,10 @@
 -- backdrop band below where containers sit.
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
+local Config = require("core/config")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
+local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
@@ -254,6 +256,20 @@ function M.new(root, opts)
     -- The tooltip and popup managers are owned by the window and reached
     -- through root, so row.lua and every widget can use them without being
     -- handed one.
+    -- Created before any page exists, because container.lua registers flags as
+    -- it builds and the settings page below is itself a consumer.
+    local configFolder = opts.ConfigFolder or opts.Name or "chroma"
+
+    root.config = Config.new(root, configFolder)
+    root.config:primeAutoload()
+    -- coroutine.running() here is the consuming script's own thread, because
+    -- Chroma:Window() is called directly from it.
+    root.config:watchForCompletion(coroutine.running())
+
+    -- One palette per window, reached through root so every colorpicker shares
+    -- it without being handed one.
+    root.palette = Palette.new(root, configFolder)
+
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
@@ -493,6 +509,19 @@ function Window:setAccent(accent)
     self._theme:setAccent(accent)
     self._theme:apply()
 end
+
+-- The widget behind a flag. Chroma.Flags carries the plain value; anything
+-- richer -- a keybind's IsHeld, a colour's alpha -- comes from here.
+function Window:Flag(flag)
+    return self._root.config:get(flag)
+end
+
+function Window:SaveConfig(name) return self._root.config:Save(name) end
+function Window:LoadConfig(name) return self._root.config:Load(name) end
+function Window:DeleteConfig(name) return self._root.config:Delete(name) end
+function Window:ListConfigs() return self._root.config:List() end
+function Window:GetAutoload() return self._root.config:GetAutoload() end
+function Window:SetAutoload(name) return self._root.config:SetAutoload(name) end
 
 -- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
