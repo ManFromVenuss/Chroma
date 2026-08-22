@@ -579,6 +579,150 @@ end
 return M
 end
 
+__modules["core/config"] = function(require)
+-- The config manager: the pure name and diff helpers, plus the registry,
+-- restore lifecycle and file IO.
+--
+-- The helpers here are unit tested, so they stay in the Lua 5.4 / Luau
+-- intersection: no compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+local MAX_NAME = 64
+
+-- A config name becomes a filename, so it has to survive the filesystem and
+-- must not be able to escape the config folder. Returns nil for anything
+-- unusable rather than guessing a replacement.
+function M.sanitiseName(name)
+    if type(name) ~= "string" then return nil end
+
+    local s = name:gsub("^%s+", "")
+    s = s:gsub("%s+$", "")
+    -- Path separators and the characters Windows rejects in a filename.
+    s = s:gsub("[/\\:%*%?\"<>|]", "")
+    -- Leading dots hide the file, and ".." is how a traversal starts.
+    s = s:gsub("^%.+", "")
+    s = s:gsub("^%s+", "")
+    s = s:gsub("%s+$", "")
+
+    if s == "" then return nil end
+    if #s > MAX_NAME then s = s:sub(1, MAX_NAME) end
+    return s
+end
+
+-- Compares a loaded config against the registered flags.
+--
+-- `unknown` is the orphaning case -- a flag in the file with no widget, which
+-- usually means a Flag was renamed and every saved value under the old name is
+-- now stranded. It is warned about rather than passed over silently.
+--
+-- `missing` is ordinary: a config saved before an option existed.
+--
+-- Both are sorted, so the warning reads the same twice running.
+function M.diffFlags(saved, registered)
+    local unknown, missing = {}, {}
+
+    for flag in pairs(saved) do
+        if registered[flag] == nil then
+            table.insert(unknown, flag)
+        end
+    end
+    for flag in pairs(registered) do
+        if saved[flag] == nil then
+            table.insert(missing, flag)
+        end
+    end
+
+    table.sort(unknown)
+    table.sort(missing)
+    return unknown, missing
+end
+
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local serialise = require("core/serialise")
+
+-- Resolved lazily: a module-scope game:GetService() runs on require, and the
+-- Lua 5.4 harness requires this file to reach the helpers above.
+local HttpService
+
+local Config = {}
+Config.__index = Config
+
+function M.new(root, folder)
+    HttpService = HttpService or game:GetService("HttpService")
+
+    return setmetatable({
+        _root = root,
+        _folder = folder,
+        _widgets = {},   -- flag -> widget
+        _opts = {},      -- flag -> the opts it was built with, for warnings
+        _pending = {},   -- flag -> encoded value, waiting for the menu to finish
+        _live = false,
+        -- Plain current values, exposed as Chroma.Flags. Maintained through the
+        -- widget contract rather than by the widgets themselves.
+        Flags = {},
+    }, Config)
+end
+
+-- Called by container.lua for every widget it builds.
+function Config:register(flag, widget)
+    if self._widgets[flag] ~= nil then
+        error(string.format("chroma: two widgets share the flag '%s'", tostring(flag)), 2)
+    end
+    self._widgets[flag] = widget
+
+    self.Flags[flag] = widget:Get()
+    widget:OnChanged(function(value)
+        self.Flags[flag] = value
+    end)
+
+    -- Before the menu is finished, saved values wait in _pending and are
+    -- applied together. After it, a widget built later catches up immediately.
+    local saved = self._pending[flag]
+    if saved ~= nil and self._live then
+        self:_apply(flag, saved)
+        self._pending[flag] = nil
+    end
+end
+
+function Config:get(flag)
+    return self._widgets[flag]
+end
+
+-- Widgets whose state is more than Get() returns say so with Save()/Load().
+function Config:_apply(flag, encoded)
+    local widget = self._widgets[flag]
+    if widget == nil then return end
+    local value = serialise.decode(encoded)
+    if value == nil then return end
+
+    if type(widget.Load) == "function" then
+        widget:Load(value)
+    else
+        widget:Set(value)
+    end
+    self.Flags[flag] = widget:Get()
+end
+
+function Config:_snapshot()
+    local out = {}
+    for flag, widget in pairs(self._widgets) do
+        local value
+        if type(widget.Save) == "function" then
+            value = widget:Save()
+        else
+            value = widget:Get()
+        end
+        local encoded = serialise.encode(value)
+        if encoded ~= nil then out[flag] = encoded end
+    end
+    return out
+end
+
+return M
+end
+
 __modules["core/container"] = function(require)
 -- A titled section: the title sits outside a bordered box, on the backdrop,
 -- as gamesense does. The box height is derived from its rows via
@@ -669,11 +813,36 @@ for name, widget in pairs(widgets) do
     Container[name] = function(self, opts)
         opts = opts or {}
         self._order = self._order + 1
-        -- widget.FullWidth is a declared property, not a hardcoded list, so
-        -- this stays widget-agnostic.
+        -- widget.FullWidth and widget.Stateless are declared properties, not
+        -- hardcoded lists, so this stays widget-agnostic.
         local row = Row.new(self._root, self._box, opts, widget.FullWidth)
         row.frame.LayoutOrder = self._order
-        return widget.new(self._root, row, opts)
+        local built = widget.new(self._root, row, opts)
+
+        -- A stateful widget without a Flag would be silently dropped from every
+        -- config, and the omission would only surface as a user losing that one
+        -- setting. Deriving a flag from the widget's title instead is worse: a
+        -- rename then orphans the saved value with nothing in the code hinting
+        -- the title was load-bearing.
+        -- Flag = false is an explicit opt-out, for a stateful widget that is
+        -- part of the interface rather than a setting -- the config browser's
+        -- own list and name field, for instance. Writing those into a user's
+        -- config would mean loading one moved the browser around.
+        if widget.Stateless then
+            if opts.Flag ~= nil then
+                error(string.format(
+                    "chroma: %s '%s' holds no state, so Flag does nothing here",
+                    name, tostring(opts.Name or opts.Text)), 2)
+            end
+        elseif opts.Flag == nil then
+            error(string.format(
+                "chroma: %s '%s' needs a Flag (or Flag = false if it is not a setting)",
+                name, tostring(opts.Name)), 2)
+        elseif opts.Flag ~= false then
+            self._root.config:register(opts.Flag, built)
+        end
+
+        return built
     end
 end
 
@@ -1861,6 +2030,97 @@ end
 return M
 end
 
+__modules["core/serialise"] = function(require)
+-- Type tagging, so the values Chroma stores survive JSON.
+--
+-- JSON has no Color3 and no EnumItem, and an executor's JSONEncode will either
+-- drop them or throw. Each becomes a plain table carrying a __t tag, and decode
+-- turns it back.
+--
+-- Pure: dispatches on typeof() and builds Roblox datatypes, but calls no
+-- Instance method, so it is unit tested. Lua 5.4 / Luau intersection -- no
+-- compound assignment, no bitwise ops, no goto.
+
+local M = {}
+
+local TAG = "__t"
+
+local function byte(channel)
+    local n = math.floor(channel * 255 + 0.5)
+    if n < 0 then return 0 end
+    if n > 255 then return 255 end
+    return n
+end
+
+-- Returns a JSON-safe value, or nil for anything unstorable. Unstorable is not
+-- an error: a consumer may hand a widget something odd, and losing one flag is
+-- better than losing the whole config.
+function M.encode(value)
+    local kind = typeof(value)
+
+    if kind == "boolean" or kind == "number" or kind == "string" then
+        return value
+    end
+
+    if kind == "Color3" then
+        return { [TAG] = "Color3", r = byte(value.R), g = byte(value.G), b = byte(value.B) }
+    end
+
+    if kind == "EnumItem" then
+        -- By name rather than by value: enum numbering is not stable across
+        -- Roblox versions, and a name is legible in the saved file.
+        return { [TAG] = "Enum", enum = value.EnumType.Name, name = value.Name }
+    end
+
+    if kind == "table" then
+        local out = {}
+        for k, v in pairs(value) do
+            local encoded = M.encode(v)
+            if encoded ~= nil then out[k] = encoded end
+        end
+        return out
+    end
+
+    return nil
+end
+
+function M.decode(value)
+    if type(value) ~= "table" then
+        -- Booleans, numbers and strings need nothing; so does nil.
+        return value
+    end
+
+    local tag = value[TAG]
+
+    if tag == "Color3" then
+        return Color3.fromRGB(value.r, value.g, value.b)
+    end
+
+    if tag == "Enum" then
+        local group = Enum[value.enum]
+        if group == nil then return nil end
+        -- Indexing a missing item throws in Roblox, so probe it.
+        local ok, item = pcall(function() return group[value.name] end)
+        if not ok then return nil end
+        return item
+    end
+
+    if tag ~= nil then
+        -- A tag this version does not know: written by a newer Chroma. Drop the
+        -- one value rather than taking the menu down.
+        return nil
+    end
+
+    local out = {}
+    for k, v in pairs(value) do
+        out[k] = M.decode(v)
+    end
+    return out
+end
+
+return M
+end
+
 __modules["core/settings"] = function(require)
 -- The built-in settings page: a pinned rail entry that configures Chroma itself.
 --
@@ -1894,6 +2154,7 @@ function M.build(root, window)
     local colour
     local mode = accent:Dropdown({
         Name = "Mode",
+        Flag = "chroma_accent_mode",
         Options = { "RGB", "Gradient", "Static" },
         -- Read from the theme rather than assuming: a window constructed with
         -- Gradient = false and a static accent would otherwise boot showing
@@ -1914,6 +2175,7 @@ function M.build(root, window)
 
     colour = accent:Colorpicker({
         Name = "Colour",
+        Flag = "chroma_accent_colour",
         Default = theme:get("Accent"),
         Description = "Used by Gradient and Static; RGB picks its own hue.",
         Callback = function(value)
@@ -1924,7 +2186,7 @@ function M.build(root, window)
     })
 
     accent:Slider({
-        Name = "Speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
+        Name = "Speed", Flag = "chroma_accent_speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
         Description = "Hue rotations per second while Mode is RGB.",
         Callback = function(value)
             window:setAccentSpeed(value)
@@ -1935,7 +2197,7 @@ function M.build(root, window)
     local shell = left:Container("Window")
 
     shell:Toggle({
-        Name = "Animations", Default = true,
+        Name = "Animations", Flag = "chroma_animations", Default = true,
         Description = "The two-stage open and close slide. Turn off for an instant show and hide.",
         Callback = function(value)
             window:setAnimations(value)
@@ -1943,7 +2205,7 @@ function M.build(root, window)
     })
 
     shell:Slider({
-        Name = "Particles", Min = 0, Max = 80, Default = 34,
+        Name = "Particles", Flag = "chroma_particles", Min = 0, Max = 80, Default = 34,
         Description = "Drifting stars over the backdrop.",
         Callback = function(value)
             window:setParticleCount(value)
@@ -1951,7 +2213,7 @@ function M.build(root, window)
     })
 
     shell:Keybind({
-        Name = "Toggle key", Default = window._toggleKey, Mode = "Always",
+        Name = "Toggle key", Flag = "chroma_toggle_key", Default = window._toggleKey, Mode = "Always",
         Description = "Right-click for the mode menu. Escape while capturing clears the bind.",
         Callback = function(bind)
             window:setToggleKey(bind)
@@ -1962,7 +2224,7 @@ function M.build(root, window)
     local pointer = right:Container("Cursor")
 
     pointer:Dropdown({
-        Name = "Style", Options = { "Cross", "None" }, Default = "Cross",
+        Name = "Style", Flag = "chroma_cursor_style", Options = { "Cross", "None" }, Default = "Cross",
         Description = "None restores the operating system pointer over the menu.",
         Callback = function(value)
             window:setCursor({ Style = value })
@@ -1970,21 +2232,21 @@ function M.build(root, window)
     })
 
     pointer:Colorpicker({
-        Name = "Colour", Default = Color3.fromRGB(255, 255, 255),
+        Name = "Colour", Flag = "chroma_cursor_colour", Default = Color3.fromRGB(255, 255, 255),
         Callback = function(value)
             window:setCursor({ Color = value })
         end,
     })
 
     pointer:Slider({
-        Name = "Size", Min = 3, Max = 14, Default = 7,
+        Name = "Size", Flag = "chroma_cursor_size", Min = 3, Max = 14, Default = 7,
         Callback = function(value)
             window:setCursor({ Size = value })
         end,
     })
 
     pointer:Slider({
-        Name = "Gap", Min = 0, Max = 6, Default = 0,
+        Name = "Gap", Flag = "chroma_cursor_gap", Min = 0, Max = 6, Default = 0,
         Description = "Opens a hole at the centre of the cross.",
         Callback = function(value)
             window:setCursor({ Gap = value })
@@ -1992,7 +2254,7 @@ function M.build(root, window)
     })
 
     pointer:Toggle({
-        Name = "Outline", Default = true,
+        Name = "Outline", Flag = "chroma_cursor_outline", Default = true,
         Description = "A black border under the cross, so it stays visible over bright ground.",
         Callback = function(value)
             window:setCursor({ Outline = value })
@@ -2439,6 +2701,7 @@ __modules["core/window"] = function(require)
 -- backdrop band below where containers sit.
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
+local Config = require("core/config")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
 local Popup = require("core/popup")
@@ -2688,6 +2951,10 @@ function M.new(root, opts)
     -- The tooltip and popup managers are owned by the window and reached
     -- through root, so row.lua and every widget can use them without being
     -- handed one.
+    -- Created before any page exists, because container.lua registers flags as
+    -- it builds and the settings page below is itself a consumer.
+    root.config = Config.new(root, opts.ConfigFolder or opts.Name or "chroma")
+
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
@@ -2928,6 +3195,12 @@ function Window:setAccent(accent)
     self._theme:apply()
 end
 
+-- The widget behind a flag. Chroma.Flags carries the plain value; anything
+-- richer -- a keybind's IsHeld, a colour's alpha -- comes from here.
+function Window:Flag(flag)
+    return self._root.config:get(flag)
+end
+
 -- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
 function Window:setToggleKey(key)
@@ -2974,6 +3247,9 @@ function Chroma:Window(opts)
     end
     self.root = Root.new(opts)
     self.window = WindowModule.new(self.root, opts)
+    -- The same table the config manager maintains, not a copy: a consumer
+    -- polling Chroma.Flags.foo every frame reads live state.
+    self.Flags = self.root.config.Flags
     return self.window
 end
 
@@ -2986,6 +3262,7 @@ function Chroma:Unload()
         self.root = nil
     end
     self.window = nil
+    self.Flags = nil
 end
 
 return Chroma
@@ -3130,6 +3407,9 @@ local M = {}
 
 -- No control slot. See label.lua for the rationale.
 M.FullWidth = true
+
+-- A button is an action, not a value, so there is nothing to save.
+M.Stateless = true
 
 local Button = {}
 Button.__index = Button
@@ -4485,6 +4765,10 @@ local M = {}
 -- row itself -- that is layout, and layout belongs to row.lua.
 M.FullWidth = true
 
+-- A label's text is presentation, not user state, so it takes no Flag and is
+-- never written to a config.
+M.Stateless = true
+
 local Label = {}
 Label.__index = Label
 
@@ -4719,6 +5003,9 @@ local M = {}
 
 -- No control slot: a separator spans the row. See label.lua for the rationale.
 M.FullWidth = true
+
+-- Nothing to persist: a separator has no value.
+M.Stateless = true
 
 local Separator = {}
 Separator.__index = Separator

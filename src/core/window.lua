@@ -5,6 +5,7 @@
 -- backdrop band below where containers sit.
 local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
+local Config = require("core/config")
 local Cursor = require("core/cursor")
 local Page = require("core/page")
 local Popup = require("core/popup")
@@ -254,6 +255,10 @@ function M.new(root, opts)
     -- The tooltip and popup managers are owned by the window and reached
     -- through root, so row.lua and every widget can use them without being
     -- handed one.
+    -- Created before any page exists, because container.lua registers flags as
+    -- it builds and the settings page below is itself a consumer.
+    root.config = Config.new(root, opts.ConfigFolder or opts.Name or "chroma")
+
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
@@ -492,6 +497,12 @@ end
 function Window:setAccent(accent)
     self._theme:setAccent(accent)
     self._theme:apply()
+end
+
+-- The widget behind a flag. Chroma.Flags carries the plain value; anything
+-- richer -- a keybind's IsHeld, a colour's alpha -- comes from here.
+function Window:Flag(flag)
+    return self._root.config:get(flag)
 end
 
 -- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.

@@ -5,6 +5,9 @@ local M = {}
 -- No control slot: a separator spans the row. See label.lua for the rationale.
 M.FullWidth = true
 
+-- Nothing to persist: a separator has no value.
+M.Stateless = true
+
 local Separator = {}
 Separator.__index = Separator
 

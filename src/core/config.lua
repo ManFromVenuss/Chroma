@@ -56,4 +56,86 @@ function M.diffFlags(saved, registered)
     return unknown, missing
 end
 
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local serialise = require("core/serialise")
+
+-- Resolved lazily: a module-scope game:GetService() runs on require, and the
+-- Lua 5.4 harness requires this file to reach the helpers above.
+local HttpService
+
+local Config = {}
+Config.__index = Config
+
+function M.new(root, folder)
+    HttpService = HttpService or game:GetService("HttpService")
+
+    return setmetatable({
+        _root = root,
+        _folder = folder,
+        _widgets = {},   -- flag -> widget
+        _opts = {},      -- flag -> the opts it was built with, for warnings
+        _pending = {},   -- flag -> encoded value, waiting for the menu to finish
+        _live = false,
+        -- Plain current values, exposed as Chroma.Flags. Maintained through the
+        -- widget contract rather than by the widgets themselves.
+        Flags = {},
+    }, Config)
+end
+
+-- Called by container.lua for every widget it builds.
+function Config:register(flag, widget)
+    if self._widgets[flag] ~= nil then
+        error(string.format("chroma: two widgets share the flag '%s'", tostring(flag)), 2)
+    end
+    self._widgets[flag] = widget
+
+    self.Flags[flag] = widget:Get()
+    widget:OnChanged(function(value)
+        self.Flags[flag] = value
+    end)
+
+    -- Before the menu is finished, saved values wait in _pending and are
+    -- applied together. After it, a widget built later catches up immediately.
+    local saved = self._pending[flag]
+    if saved ~= nil and self._live then
+        self:_apply(flag, saved)
+        self._pending[flag] = nil
+    end
+end
+
+function Config:get(flag)
+    return self._widgets[flag]
+end
+
+-- Widgets whose state is more than Get() returns say so with Save()/Load().
+function Config:_apply(flag, encoded)
+    local widget = self._widgets[flag]
+    if widget == nil then return end
+    local value = serialise.decode(encoded)
+    if value == nil then return end
+
+    if type(widget.Load) == "function" then
+        widget:Load(value)
+    else
+        widget:Set(value)
+    end
+    self.Flags[flag] = widget:Get()
+end
+
+function Config:_snapshot()
+    local out = {}
+    for flag, widget in pairs(self._widgets) do
+        local value
+        if type(widget.Save) == "function" then
+            value = widget:Save()
+        else
+            value = widget:Get()
+        end
+        local encoded = serialise.encode(value)
+        if encoded ~= nil then out[flag] = encoded end
+    end
+    return out
+end
+
 return M

@@ -11,6 +11,10 @@ local M = {}
 -- row itself -- that is layout, and layout belongs to row.lua.
 M.FullWidth = true
 
+-- A label's text is presentation, not user state, so it takes no Flag and is
+-- never written to a config.
+M.Stateless = true
+
 local Label = {}
 Label.__index = Label
 

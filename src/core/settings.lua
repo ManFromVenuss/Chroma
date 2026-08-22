@@ -30,6 +30,7 @@ function M.build(root, window)
     local colour
     local mode = accent:Dropdown({
         Name = "Mode",
+        Flag = "chroma_accent_mode",
         Options = { "RGB", "Gradient", "Static" },
         -- Read from the theme rather than assuming: a window constructed with
         -- Gradient = false and a static accent would otherwise boot showing
@@ -50,6 +51,7 @@ function M.build(root, window)
 
     colour = accent:Colorpicker({
         Name = "Colour",
+        Flag = "chroma_accent_colour",
         Default = theme:get("Accent"),
         Description = "Used by Gradient and Static; RGB picks its own hue.",
         Callback = function(value)
@@ -60,7 +62,7 @@ function M.build(root, window)
     })
 
     accent:Slider({
-        Name = "Speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
+        Name = "Speed", Flag = "chroma_accent_speed", Min = 0, Max = 1, Default = 0.15, Decimals = 2,
         Description = "Hue rotations per second while Mode is RGB.",
         Callback = function(value)
             window:setAccentSpeed(value)
@@ -71,7 +73,7 @@ function M.build(root, window)
     local shell = left:Container("Window")
 
     shell:Toggle({
-        Name = "Animations", Default = true,
+        Name = "Animations", Flag = "chroma_animations", Default = true,
         Description = "The two-stage open and close slide. Turn off for an instant show and hide.",
         Callback = function(value)
             window:setAnimations(value)
@@ -79,7 +81,7 @@ function M.build(root, window)
     })
 
     shell:Slider({
-        Name = "Particles", Min = 0, Max = 80, Default = 34,
+        Name = "Particles", Flag = "chroma_particles", Min = 0, Max = 80, Default = 34,
         Description = "Drifting stars over the backdrop.",
         Callback = function(value)
             window:setParticleCount(value)
@@ -87,7 +89,7 @@ function M.build(root, window)
     })
 
     shell:Keybind({
-        Name = "Toggle key", Default = window._toggleKey, Mode = "Always",
+        Name = "Toggle key", Flag = "chroma_toggle_key", Default = window._toggleKey, Mode = "Always",
         Description = "Right-click for the mode menu. Escape while capturing clears the bind.",
         Callback = function(bind)
             window:setToggleKey(bind)
@@ -98,7 +100,7 @@ function M.build(root, window)
     local pointer = right:Container("Cursor")
 
     pointer:Dropdown({
-        Name = "Style", Options = { "Cross", "None" }, Default = "Cross",
+        Name = "Style", Flag = "chroma_cursor_style", Options = { "Cross", "None" }, Default = "Cross",
         Description = "None restores the operating system pointer over the menu.",
         Callback = function(value)
             window:setCursor({ Style = value })
@@ -106,21 +108,21 @@ function M.build(root, window)
     })
 
     pointer:Colorpicker({
-        Name = "Colour", Default = Color3.fromRGB(255, 255, 255),
+        Name = "Colour", Flag = "chroma_cursor_colour", Default = Color3.fromRGB(255, 255, 255),
         Callback = function(value)
             window:setCursor({ Color = value })
         end,
     })
 
     pointer:Slider({
-        Name = "Size", Min = 3, Max = 14, Default = 7,
+        Name = "Size", Flag = "chroma_cursor_size", Min = 3, Max = 14, Default = 7,
         Callback = function(value)
             window:setCursor({ Size = value })
         end,
     })
 
     pointer:Slider({
-        Name = "Gap", Min = 0, Max = 6, Default = 0,
+        Name = "Gap", Flag = "chroma_cursor_gap", Min = 0, Max = 6, Default = 0,
         Description = "Opens a hole at the centre of the cross.",
         Callback = function(value)
             window:setCursor({ Gap = value })
@@ -128,7 +130,7 @@ function M.build(root, window)
     })
 
     pointer:Toggle({
-        Name = "Outline", Default = true,
+        Name = "Outline", Flag = "chroma_cursor_outline", Default = true,
         Description = "A black border under the cross, so it stays visible over bright ground.",
         Callback = function(value)
             window:setCursor({ Outline = value })
