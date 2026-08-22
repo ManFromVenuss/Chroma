@@ -820,7 +820,7 @@ function Config:Load(rawName)
         return false, "corrupt config"
     end
 
-    local unknown = M.diffFlags(data, self._widgets)
+    local unknown, _ = M.diffFlags(data, self._widgets)
     if #unknown > 0 then
         -- Almost always a renamed Flag, which strands every value saved under
         -- the old name. Silence here is what makes that expensive to find.
