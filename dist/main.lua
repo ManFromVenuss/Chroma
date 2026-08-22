@@ -705,6 +705,18 @@ function Config:_apply(flag, encoded)
     self.Flags[flag] = widget:Get()
 end
 
+-- A single flag erroring (Keybind:Load calling SetMode on a corrupt value, for
+-- instance) must not stop every flag after it in iteration order from
+-- applying -- pairs() order is arbitrary, so that would drop configs at
+-- random. Isolate each apply and warn with enough to find the bad flag.
+local function applyOne(self, flag, value, configName)
+    local ok, err = pcall(self._apply, self, flag, value)
+    if not ok then
+        warn(string.format("[Chroma] config '%s' flag '%s' failed to load: %s",
+            tostring(configName), tostring(flag), tostring(err)))
+    end
+end
+
 function Config:_snapshot()
     local out = {}
     for flag, widget in pairs(self._widgets) do
@@ -818,7 +830,7 @@ function Config:Load(rawName)
 
     for flag, value in pairs(data) do
         if self._widgets[flag] ~= nil then
-            self:_apply(flag, value)
+            applyOne(self, flag, value, name)
         else
             self._pending[flag] = value
         end
@@ -915,7 +927,7 @@ function Config:finish()
     local applied, unknown = 0, {}
     for flag, value in pairs(self._pending) do
         if self._widgets[flag] ~= nil then
-            self:_apply(flag, value)
+            applyOne(self, flag, value, self._autoloadName)
             self._pending[flag] = nil
             applied = applied + 1
         else
