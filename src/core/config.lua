@@ -259,4 +259,131 @@ function Config:Delete(rawName)
     return true, name
 end
 
+--== autoload ==--
+-- Chroma:Window() returns before a single widget exists, so there is no natural
+-- moment at which the menu is known to be built. Saved values therefore wait in
+-- _pending until one of two signals, then apply with an ordinary Set so
+-- callbacks fire once, normally.
+
+-- No new widget for this long also counts as finished. It exists for scripts
+-- that end in a render loop, whose thread never dies.
+local QUIET = 1
+
+function Config:_autoloadPath()
+    return self._folder .. "/autoload.txt"
+end
+
+function Config:GetAutoload()
+    if not self:isAvailable() or not isfile then return nil end
+    local path = self:_autoloadPath()
+    if not isfile(path) then return nil end
+    local ok, text = pcall(readfile, path)
+    if not ok then return nil end
+    return M.sanitiseName(text)
+end
+
+function Config:SetAutoload(rawName)
+    if not self:isAvailable() then return false end
+    self:ensureFolders()
+
+    if rawName == nil then
+        if delfile and isfile and isfile(self:_autoloadPath()) then
+            pcall(delfile, self:_autoloadPath())
+        end
+        return true
+    end
+
+    local name = M.sanitiseName(rawName)
+    if name == nil then return false end
+    return pcall(writefile, self:_autoloadPath(), name) and true or false
+end
+
+-- Reads the marked config into _pending without touching any widget. Called
+-- during Window(), when there are none yet.
+function Config:primeAutoload()
+    local name = self:GetAutoload()
+    if name == nil then return end
+
+    local path = self:_configPath(name)
+    if isfile and not isfile(path) then return end
+
+    local ok, text = pcall(readfile, path)
+    if not ok then return end
+
+    local decoded, data = pcall(function()
+        return HttpService:JSONDecode(text)
+    end)
+    if not decoded or type(data) ~= "table" then
+        warn("[Chroma] autoload config '" .. name .. "' is unreadable and was ignored")
+        return
+    end
+
+    for flag, value in pairs(data) do
+        self._pending[flag] = value
+    end
+    self._autoloadName = name
+end
+
+-- Applies everything still pending, then marks the manager live so any widget
+-- built afterwards catches up on registration instead.
+function Config:finish()
+    if self._live then return end
+    self._live = true
+
+    local applied, unknown = 0, {}
+    for flag, value in pairs(self._pending) do
+        if self._widgets[flag] ~= nil then
+            self:_apply(flag, value)
+            self._pending[flag] = nil
+            applied = applied + 1
+        else
+            table.insert(unknown, flag)
+        end
+    end
+
+    if #unknown > 0 and self._autoloadName then
+        table.sort(unknown)
+        warn("[Chroma] autoload config '" .. self._autoloadName .. "' has " ..
+            #unknown .. " flag(s) with no widget: " .. table.concat(unknown, ", "))
+    end
+    return applied
+end
+
+-- Watches for the menu being finished. `thread` is the consumer's script
+-- thread, captured in Window(): once it is dead, the script body has run to
+-- completion. That handles a script yielding mid-build -- an HttpGet leaves the
+-- thread suspended, not dead -- which a deferred call does not.
+--
+-- LoadConfig() always works by hand, so if both signals somehow fail the cost
+-- is that autoload did not fire, not that configs are broken.
+function Config:watchForCompletion(thread)
+    local RunService = game:GetService("RunService")
+    local waited = 0
+    local lastCount = 0
+
+    local conn
+    conn = RunService.Heartbeat:Connect(function(dt)
+        if not self._root:isAlive() or self._live then
+            conn:Disconnect()
+            return
+        end
+
+        local count = 0
+        for _ in pairs(self._widgets) do count = count + 1 end
+        if count ~= lastCount then
+            lastCount = count
+            waited = 0
+        else
+            waited = waited + dt
+        end
+
+        local dead = thread == nil or coroutine.status(thread) == "dead"
+        if dead or waited >= QUIET then
+            conn:Disconnect()
+            self:finish()
+        end
+    end)
+    self._root:keep(conn)
+end
+
 return M

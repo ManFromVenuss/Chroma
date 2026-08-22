@@ -258,6 +258,10 @@ function M.new(root, opts)
     -- Created before any page exists, because container.lua registers flags as
     -- it builds and the settings page below is itself a consumer.
     root.config = Config.new(root, opts.ConfigFolder or opts.Name or "chroma")
+    root.config:primeAutoload()
+    -- coroutine.running() here is the consuming script's own thread, because
+    -- Chroma:Window() is called directly from it.
+    root.config:watchForCompletion(coroutine.running())
 
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
@@ -509,6 +513,8 @@ function Window:SaveConfig(name) return self._root.config:Save(name) end
 function Window:LoadConfig(name) return self._root.config:Load(name) end
 function Window:DeleteConfig(name) return self._root.config:Delete(name) end
 function Window:ListConfigs() return self._root.config:List() end
+function Window:GetAutoload() return self._root.config:GetAutoload() end
+function Window:SetAutoload(name) return self._root.config:SetAutoload(name) end
 
 -- Accepts a KeyCode, a bindable UserInputType, or nil for no toggle at all.
 -- The settings page's Keybind writes here.
