@@ -7,7 +7,7 @@
 
 local Column = require("core/column")
 local Icons = require("core/icons")
-local lucideGlyphs = require("core/lucide_glyphs")
+local lucideAssets = require("core/lucide_assets")
 
 local M = {}
 
@@ -114,18 +114,15 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    local resolved = Icons.resolveIcon(opts.Icon, lucideGlyphs, root.iconFont ~= nil)
+    local resolved = Icons.resolveIcon(opts.Icon, lucideAssets)
 
-    -- The consumer passed a Lucide name but nothing resolved it. Warn once so
-    -- a typo shows up during development rather than as a silent letter --
-    -- Chroma's error, not the consumer's fault.
-    if resolved.kind == "letter" and type(opts.Icon) == "string"
-        and opts.Icon ~= "" and opts.Icon:sub(1, 13) ~= "rbxassetid://" then
-        if root.iconFont ~= nil and lucideGlyphs[opts.Icon] == nil then
-            warn(string.format(
-                "[Chroma] page '%s' Icon '%s' is not a Lucide name; falling back",
-                tostring(name), tostring(opts.Icon)))
-        end
+    -- The consumer passed something Chroma cannot resolve into an image. Warn
+    -- once so a typo shows up during development rather than as a silent
+    -- letter -- Chroma's error, not the consumer's fault.
+    if resolved.kind == "letter" and type(opts.Icon) == "string" and opts.Icon ~= "" then
+        warn(string.format(
+            "[Chroma] page '%s' Icon '%s' is not a Lucide name; falling back",
+            tostring(name), tostring(opts.Icon)))
     end
 
     local glyph
@@ -135,22 +132,14 @@ function M.new(root, window, opts)
         glyph.Size = UDim2.fromOffset(14, 14)
         glyph.BackgroundTransparency = 1
     else
+        -- Letter fallback: first character of the page name, in Ubuntu.
         glyph = Instance.new("TextLabel")
         glyph.Size = UDim2.fromOffset(14, 14)
         glyph.BackgroundTransparency = 1
+        glyph.Font = Enum.Font.Ubuntu
+        glyph.TextSize = 12
+        glyph.Text = name:sub(1, 1):upper()
         theme:bind(glyph, "TextColor3", "TextDim")
-        if resolved.kind == "glyph" then
-            -- Lucide font glyph: sized larger because the strokes are thinner
-            -- than Ubuntu at 12pt, and Roblox's Font value carries the face.
-            glyph.FontFace = root.iconFont
-            glyph.TextSize = 14
-            glyph.Text = utf8.char(resolved.codepoint)
-        else
-            -- Letter fallback: first character of the page name, in Ubuntu.
-            glyph.Font = Enum.Font.Ubuntu
-            glyph.TextSize = 12
-            glyph.Text = name:sub(1, 1):upper()
-        end
     end
     glyph.Name = "glyph"
     glyph.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -277,9 +266,13 @@ function Page:setActive(active)
     else
         self._theme:unbind(self._button)
     end
+    -- Both letter fallbacks (TextLabel) and Lucide icons (ImageLabel) tint on
+    -- active state, through their respective colour properties.
+    self._theme:unbind(self._glyph)
     if self._glyph:IsA("TextLabel") then
-        self._theme:unbind(self._glyph)
         self._theme:bind(self._glyph, "TextColor3", active and "TextBright" or "TextDim")
+    else
+        self._theme:bind(self._glyph, "ImageColor3", active and "TextBright" or "TextDim")
     end
     if self._text then
         self._theme:unbind(self._text)

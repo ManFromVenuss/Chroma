@@ -7,7 +7,6 @@ local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Config = require("core/config")
 local Cursor = require("core/cursor")
-local Icons = require("core/icons")
 local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
@@ -260,10 +259,6 @@ function M.new(root, opts)
     -- handed one.
     -- Created before any page exists, because container.lua registers flags as
     -- it builds and the settings page below is itself a consumer.
-    -- Load the Lucide font before the settings page is built: it uses
-    -- Icon = "settings", so a late load would render the gear as an "S".
-    Icons.load(root)
-
     local configFolder = opts.ConfigFolder or opts.Name or "chroma"
 
     root.config = Config.new(root, configFolder)
