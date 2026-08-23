@@ -11,6 +11,7 @@ local Icons = require("core/icons")
 local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
+local Rail = require("core/rail")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
@@ -407,6 +408,10 @@ function M.new(root, opts)
     if opts.Settings ~= false then
         self._settingsPage = Settings.build(root, self)
     end
+
+    -- After every page is built (Settings included), so the tween can walk
+    -- them. Rail.new is a no-op when Rail = { HoverExpand = false }.
+    self._rail_ctl = Rail.new(root, self, opts.Rail)
 
     self:setSize(size.X, size.Y)
     self._anim:_snap(false)
