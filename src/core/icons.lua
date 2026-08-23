@@ -41,7 +41,6 @@ local HttpService
 -- the fetch is skipped.
 local FONT_URL = "https://raw.githubusercontent.com/ManFromVenuss/Chroma/main/assets/lucide.ttf"
 local FONT_PATH = "chroma/lucide.ttf"
-local FETCH_TIMEOUT = 3
 
 -- Cached on M so a rebuild reuses it. root.iconFont is written from here so
 -- pages can read it through root without knowing about this module.
@@ -60,29 +59,14 @@ local function fetchFont(root)
 
     HttpService = HttpService or game:GetService("HttpService")
 
-    -- HttpGet in a wrapped thread so a hang past FETCH_TIMEOUT does not stall
-    -- Chroma:Window() forever. task.spawn returns immediately; the thread's
-    -- coroutine.status is what tells us it finished.
-    local done, body, err = false, nil, nil
-    local thread = task.spawn(function()
-        local ok, result = pcall(function()
-            return game:HttpGet(FONT_URL, true)
-        end)
-        if ok then body = result else err = tostring(result) end
-        done = true
-    end)
-
-    local start = os.clock()
-    while not done and (os.clock() - start) < FETCH_TIMEOUT do
-        task.wait()
-    end
-
-    if not done then
-        root:degrade("icons", "lucide font fetch timed out after " .. FETCH_TIMEOUT .. "s")
-        return false
-    end
-    if body == nil then
-        root:degrade("icons", "lucide font fetch failed: " .. tostring(err))
+    -- HttpGet is what the executor gives us. On some it yields; on others it
+    -- blocks the whole VM until the request completes. A Lua-side cap is not
+    -- possible for a blocking C call, so we do not fake one. The saving grace
+    -- is that the file is small (~1MB) and cached on disk after the first
+    -- fetch, so this only stalls once per script session.
+    local ok, body = pcall(game.HttpGet, game, FONT_URL, true)
+    if not ok then
+        root:degrade("icons", "lucide font fetch failed: " .. tostring(body))
         return false
     end
 
