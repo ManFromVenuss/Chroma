@@ -23,6 +23,7 @@ end
 -- Resolved lazily: a module-scope game:GetService() runs on require, and the
 -- Lua 5.4 harness requires this file to reach easeExpand.
 local RunService
+local TextService
 local TweenService
 local UserInputService
 
@@ -30,15 +31,18 @@ local Rail = {}
 Rail.__index = Rail
 
 local COMPACT = 28
-local EXPANDED_DEFAULT = 120
+local TEXT_LEFT = 28    -- where the page-name label starts, matches page.lua
+local RIGHT_PAD = 10    -- gap between the longest text and the rail's right edge
+local MIN_EXPANDED = 60 -- floor so an empty rail is still a visibly-open pill
 local DELAY_IN = 0.12
 local DELAY_OUT = 0.4
 local TWEEN_TIME = 0.16
 
--- opts: HoverExpand (defaults true), ExpandedWidth (defaults 120)
+-- opts: HoverExpand (defaults true), ExpandedWidth (nil = auto-measure)
 function M.new(root, window, opts)
     opts = opts or {}
     RunService = RunService or game:GetService("RunService")
+    TextService = TextService or game:GetService("TextService")
     TweenService = TweenService or game:GetService("TweenService")
     UserInputService = UserInputService or game:GetService("UserInputService")
 
@@ -48,7 +52,9 @@ function M.new(root, window, opts)
         _rail = window._rail,
         _pageArea = window._pageArea,
         _expanded = false,
-        _expandedWidth = opts.ExpandedWidth or EXPANDED_DEFAULT,
+        -- nil means measure per expand; a number pins it. A consumer with
+        -- deeply-nested Cyrillic or Chinese might want a fixed value.
+        _expandedWidth = opts.ExpandedWidth,
         _enabled = opts.HoverExpand ~= false,
         _inTimer = nil,   -- task.delay handle waiting to expand
         _outTimer = nil,  -- task.delay handle waiting to collapse
@@ -130,11 +136,34 @@ function Rail:_wantCollapse()
     end)
 end
 
+-- Widest page-name text plus the icon column and a right margin. Cheap: a
+-- handful of GetTextSize calls, only when we actually expand. Recomputed each
+-- time so pages added after Chroma:Window returns are picked up automatically.
+function Rail:_measureExpanded()
+    if self._expandedWidth then return self._expandedWidth end
+
+    local widest = 0
+    for i = 1, #self._window._pages do
+        local page = self._window._pages[i]
+        if page._text then
+            local ok, bounds = pcall(function()
+                return TextService:GetTextSize(page._text.Text, 12,
+                    Enum.Font.Ubuntu, Vector2.new(1000, 40))
+            end)
+            if ok and bounds.X > widest then widest = bounds.X end
+        end
+    end
+
+    local w = TEXT_LEFT + math.ceil(widest) + RIGHT_PAD
+    if w < MIN_EXPANDED then w = MIN_EXPANDED end
+    return w
+end
+
 function Rail:_expand(open)
     if self._expanded == open then return end
     self._expanded = open
 
-    local width = open and self._expandedWidth or COMPACT
+    local width = open and self:_measureExpanded() or COMPACT
 
     -- Cancel every tween started by the previous _expand call, or a rapid
     -- hover-in/out stacks overlapping tweens on the same Position and Size
