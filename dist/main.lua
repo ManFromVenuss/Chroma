@@ -1569,10 +1569,15 @@ end
 -- leaves it nil (with a degrade) on failure. Synchronous.
 function M.load(root)
     if root.iconFont then return end
-    if cachedFont then
+    -- The cached Font is only trustworthy while its underlying file still
+    -- exists. Something deleting it between sessions in the same script run
+    -- would leave Chroma.iconFont pointing at an unresolvable asset id, and
+    -- every icon would render as a blank glyph rather than a letter.
+    if cachedFont and isfile and isfile(FONT_PATH) then
         root.iconFont = cachedFont
         return
     end
+    cachedFont = nil
 
     if not getcustomasset then
         root:degrade("icons", "getcustomasset missing: lucide icons disabled")
