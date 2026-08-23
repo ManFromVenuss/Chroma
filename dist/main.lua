@@ -3823,6 +3823,34 @@ function M.new(root, window, opts)
     glyph.Position = UDim2.fromScale(0.5, 0.5)
     glyph.Parent = button
 
+    -- When the rail is expanded, the page name appears to the right of the
+    -- glyph. It exists at construction, invisible via TextTransparency, and
+    -- the rail's expand animation tweens both the transparency and the rail
+    -- width in lockstep.
+    --
+    -- Only real (non-pinned) rail pages get a text: the pinned strip is
+    -- narrow, and expanding it would fight the top rail's own animation.
+    --
+    -- `self` does not exist yet at this point in M.new; the local `pageText`
+    -- is stored on `self` further down when the setmetatable table is built.
+    local pageText
+    if not opts.Pinned then
+        pageText = Instance.new("TextLabel")
+        pageText.Name = "text"
+        pageText.AnchorPoint = Vector2.new(0, 0.5)
+        pageText.Position = UDim2.new(0, 28, 0.5, 0)
+        pageText.Size = UDim2.new(1, -34, 1, 0)
+        pageText.BackgroundTransparency = 1
+        pageText.Font = Enum.Font.Ubuntu
+        pageText.TextSize = 12
+        pageText.TextXAlignment = Enum.TextXAlignment.Left
+        pageText.TextTruncate = Enum.TextTruncate.AtEnd
+        pageText.Text = name
+        pageText.TextTransparency = 1
+        pageText.Parent = button
+        theme:bind(pageText, "TextColor3", "TextDim")
+    end
+
     --== page body ==--
     local body = Instance.new("Frame")
     body.Name = "page_" .. name
@@ -3892,6 +3920,7 @@ function M.new(root, window, opts)
         _button = button,
         _marker = marker,
         _glyph = glyph,
+        _text = pageText,
         name = name,
         body = body,
         pinned = opts.Pinned == true,
@@ -3917,6 +3946,10 @@ function Page:setActive(active)
     if self._glyph:IsA("TextLabel") then
         self._theme:unbind(self._glyph)
         self._theme:bind(self._glyph, "TextColor3", active and "TextBright" or "TextDim")
+    end
+    if self._text then
+        self._theme:unbind(self._text)
+        self._theme:bind(self._text, "TextColor3", active and "TextBright" or "TextDim")
     end
 end
 
@@ -4321,6 +4354,30 @@ function Popup:bindDismissal(window)
     window:onLayoutChanged(function()
         self:close()
     end)
+end
+
+return M
+end
+
+__modules["core/rail"] = function(require)
+-- Rail: pure easeExpand for the hover tween, plus (from the next task) the
+-- hover watcher and instance-side tween.
+--
+-- Pure: Lua 5.4 / Luau intersection.
+
+local M = {}
+
+-- Ease-out quart. Chosen to match the window's own open animation, which uses
+-- Enum.EasingStyle.Quint / EasingDirection.Out via TweenService; a quart here
+-- is close enough that the two motions read as belonging to the same UI.
+--
+-- The TweenService codepath is what actually runs in-game; this exists so a
+-- caller that wants to sample the curve outside a Tween has one endpoint.
+function M.easeExpand(from, to, t)
+    if t <= 0 then return from end
+    if t >= 1 then return to end
+    local eased = 1 - (1 - t) * (1 - t) * (1 - t) * (1 - t)
+    return from + (to - from) * eased
 end
 
 return M
