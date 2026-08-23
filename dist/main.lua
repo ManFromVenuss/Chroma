@@ -4398,8 +4398,18 @@ function M.new(root, window, opts)
         _enabled = opts.HoverExpand ~= false,
         _inTimer = nil,   -- task.delay handle waiting to expand
         _outTimer = nil,  -- task.delay handle waiting to collapse
-        _activeTween = nil,
+        _tweens = {},
     }, Rail)
+
+    -- One cleanup closure covers every tween this instance ever creates,
+    -- matching the pattern anim.lua uses. A closure per tween would grow the
+    -- junk list on every hover-in.
+    root:keep(function()
+        for i = 1, #self._tweens do
+            pcall(function() self._tweens[i]:Cancel() end)
+        end
+        self._tweens = {}
+    end)
 
     if not self._enabled then
         return self
@@ -4472,26 +4482,30 @@ function Rail:_expand(open)
 
     local width = open and self._expandedWidth or COMPACT
 
-    -- Cancel a superseded tween so a rapid hover-in/out doesn't leave two
-    -- tweens fighting each other.
-    if self._activeTween then
-        pcall(function() self._activeTween:Cancel() end)
-        self._activeTween = nil
+    -- Cancel every tween started by the previous _expand call, or a rapid
+    -- hover-in/out stacks overlapping tweens on the same Position and Size
+    -- properties and leaves visible jitter.
+    for i = 1, #self._tweens do
+        pcall(function() self._tweens[i]:Cancel() end)
     end
+    self._tweens = {}
 
     local info = TweenInfo.new(TWEEN_TIME, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
     -- Rail: only its width changes.
-    self._activeTween = TweenService:Create(self._rail, info,
+    local railTween = TweenService:Create(self._rail, info,
         { Size = UDim2.new(0, width, 1, 0) })
-    self._activeTween:Play()
+    table.insert(self._tweens, railTween)
+    railTween:Play()
 
     -- Page area follows in lockstep so the columns reflow through the
     -- existing AbsoluteSize-changed signal on each tab's holder.
-    TweenService:Create(self._pageArea, info, {
+    local areaTween = TweenService:Create(self._pageArea, info, {
         Position = UDim2.fromOffset(width, 0),
         Size = UDim2.new(1, -width, 1, 0),
-    }):Play()
+    })
+    table.insert(self._tweens, areaTween)
+    areaTween:Play()
 
     -- Every page's text label tweens transparency in the same window, so text
     -- appears alongside the rail rather than snapping in at either end.
@@ -4500,8 +4514,10 @@ function Rail:_expand(open)
     for i = 1, #self._window._pages do
         local page = self._window._pages[i]
         if page._text then
-            TweenService:Create(page._text, info,
-                { TextTransparency = targetTransparency }):Play()
+            local textTween = TweenService:Create(page._text, info,
+                { TextTransparency = targetTransparency })
+            table.insert(self._tweens, textTween)
+            textTween:Play()
         end
     end
 end
