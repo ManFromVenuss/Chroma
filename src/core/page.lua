@@ -142,11 +142,15 @@ function M.new(root, window, opts)
         theme:bind(glyph, "TextColor3", "TextDim")
     end
     glyph.Name = "glyph"
-    -- Fixed at x=14 rather than centred at 0.5: the button widens on rail
-    -- expand, and a centred glyph drifts rightward with it, clipping into the
-    -- text that appears alongside.
     glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-    glyph.Position = UDim2.new(0, 14, 0.5, 0)
+    -- List pages pin the glyph at x=14 so it does not drift into the page-name
+    -- text as the rail widens. Pinned pages have no text and want the glyph to
+    -- track the strip's centre as the strip widens with the rail.
+    if opts.Pinned then
+        glyph.Position = UDim2.fromScale(0.5, 0.5)
+    else
+        glyph.Position = UDim2.new(0, 14, 0.5, 0)
+    end
     glyph.Parent = button
 
     -- When the rail is expanded, the page name appears to the right of the

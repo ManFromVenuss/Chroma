@@ -50,6 +50,7 @@ function M.new(root, window, opts)
         _root = root,
         _window = window,
         _rail = window._rail,
+        _railBottom = window._railBottom,
         _pageArea = window._pageArea,
         _expanded = false,
         -- nil means measure per expand; a number pins it. A consumer with
@@ -79,12 +80,21 @@ function M.new(root, window, opts)
     -- rail's rect. MouseEnter/MouseLeave on the rail Frame would look
     -- simpler, but they fire against child buttons in ways that make hover
     -- state jitter -- a poll against AbsolutePosition is stable.
+    --
+    -- The pinned strip is a sibling of the rail, not a child, so the pointer
+    -- being on the settings gear falls outside the rail's rect. Without
+    -- unioning the strip's rect, hovering the gear starts a collapse and the
+    -- rail sweeps out from under the cursor.
+    local function isInside(guiObject, mx, my)
+        local p, s = guiObject.AbsolutePosition, guiObject.AbsoluteSize
+        return mx >= p.X and mx < p.X + s.X and my >= p.Y and my < p.Y + s.Y
+    end
+
     root:keep(RunService.RenderStepped:Connect(function()
         if not root:isAlive() then return end
         local mx, my = root:mouseInGuiSpace()
-        local origin, extent = self._rail.AbsolutePosition, self._rail.AbsoluteSize
-        local over = mx >= origin.X and mx < origin.X + extent.X
-                 and my >= origin.Y and my < origin.Y + extent.Y
+        local over = isInside(self._rail, mx, my)
+            or (self._railBottom and isInside(self._railBottom, mx, my))
 
         if over then
             self:_wantExpand()
@@ -180,6 +190,16 @@ function Rail:_expand(open)
         { Size = UDim2.new(0, width, 1, 0) })
     table.insert(self._tweens, railTween)
     railTween:Play()
+
+    -- Pinned strip sits alongside the rail (not inside it) and has a fixed
+    -- pixel Size, so it must be tweened in lockstep -- otherwise the settings
+    -- gear stays anchored at 28px while the rail widens around it.
+    if self._railBottom then
+        local bottomTween = TweenService:Create(self._railBottom, info,
+            { Size = UDim2.new(0, width, 0, self._railBottom.Size.Y.Offset) })
+        table.insert(self._tweens, bottomTween)
+        bottomTween:Play()
+    end
 
     -- Page area follows in lockstep so the columns reflow through the
     -- existing AbsoluteSize-changed signal on each tab's holder.

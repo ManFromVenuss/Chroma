@@ -3245,11 +3245,15 @@ function M.new(root, window, opts)
         theme:bind(glyph, "TextColor3", "TextDim")
     end
     glyph.Name = "glyph"
-    -- Fixed at x=14 rather than centred at 0.5: the button widens on rail
-    -- expand, and a centred glyph drifts rightward with it, clipping into the
-    -- text that appears alongside.
     glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-    glyph.Position = UDim2.new(0, 14, 0.5, 0)
+    -- List pages pin the glyph at x=14 so it does not drift into the page-name
+    -- text as the rail widens. Pinned pages have no text and want the glyph to
+    -- track the strip's centre as the strip widens with the rail.
+    if opts.Pinned then
+        glyph.Position = UDim2.fromScale(0.5, 0.5)
+    else
+        glyph.Position = UDim2.new(0, 14, 0.5, 0)
+    end
     glyph.Parent = button
 
     -- When the rail is expanded, the page name appears to the right of the
@@ -3845,6 +3849,7 @@ function M.new(root, window, opts)
         _root = root,
         _window = window,
         _rail = window._rail,
+        _railBottom = window._railBottom,
         _pageArea = window._pageArea,
         _expanded = false,
         -- nil means measure per expand; a number pins it. A consumer with
@@ -3874,12 +3879,21 @@ function M.new(root, window, opts)
     -- rail's rect. MouseEnter/MouseLeave on the rail Frame would look
     -- simpler, but they fire against child buttons in ways that make hover
     -- state jitter -- a poll against AbsolutePosition is stable.
+    --
+    -- The pinned strip is a sibling of the rail, not a child, so the pointer
+    -- being on the settings gear falls outside the rail's rect. Without
+    -- unioning the strip's rect, hovering the gear starts a collapse and the
+    -- rail sweeps out from under the cursor.
+    local function isInside(guiObject, mx, my)
+        local p, s = guiObject.AbsolutePosition, guiObject.AbsoluteSize
+        return mx >= p.X and mx < p.X + s.X and my >= p.Y and my < p.Y + s.Y
+    end
+
     root:keep(RunService.RenderStepped:Connect(function()
         if not root:isAlive() then return end
         local mx, my = root:mouseInGuiSpace()
-        local origin, extent = self._rail.AbsolutePosition, self._rail.AbsoluteSize
-        local over = mx >= origin.X and mx < origin.X + extent.X
-                 and my >= origin.Y and my < origin.Y + extent.Y
+        local over = isInside(self._rail, mx, my)
+            or (self._railBottom and isInside(self._railBottom, mx, my))
 
         if over then
             self:_wantExpand()
@@ -3975,6 +3989,16 @@ function Rail:_expand(open)
         { Size = UDim2.new(0, width, 1, 0) })
     table.insert(self._tweens, railTween)
     railTween:Play()
+
+    -- Pinned strip sits alongside the rail (not inside it) and has a fixed
+    -- pixel Size, so it must be tweened in lockstep -- otherwise the settings
+    -- gear stays anchored at 28px while the rail widens around it.
+    if self._railBottom then
+        local bottomTween = TweenService:Create(self._railBottom, info,
+            { Size = UDim2.new(0, width, 0, self._railBottom.Size.Y.Offset) })
+        table.insert(self._tweens, bottomTween)
+        bottomTween:Play()
+    end
 
     -- Page area follows in lockstep so the columns reflow through the
     -- existing AbsoluteSize-changed signal on each tab's holder.
@@ -5287,7 +5311,7 @@ function M.new(root, opts)
     railBottom.Name = "railBottom"
     railBottom.AnchorPoint = Vector2.new(0, 1)
     railBottom.Position = UDim2.new(0, 0, 1, 0)
-    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 36)
+    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 44)
     railBottom.BackgroundTransparency = 1
     railBottom.BorderSizePixel = 0
     railBottom.ZIndex = 6
@@ -5301,6 +5325,13 @@ function M.new(root, opts)
     railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
     railBottomLayout.Padding = UDim.new(0, 5)
     railBottomLayout.Parent = railBottom
+
+    -- Lifts the pinned strip's contents off the very bottom edge. Combined
+    -- with the strip's own extra height, this puts the gear ~6px above the
+    -- body edge without pushing the rule out the top.
+    local railBottomPad = Instance.new("UIPadding")
+    railBottomPad.PaddingBottom = UDim.new(0, 6)
+    railBottomPad.Parent = railBottom
 
     -- A UIListLayout arranges every child, so the rule is part of the list
     -- rather than positioned over it -- the same trap that makes a full-width

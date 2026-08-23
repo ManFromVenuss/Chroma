@@ -213,7 +213,7 @@ function M.new(root, opts)
     railBottom.Name = "railBottom"
     railBottom.AnchorPoint = Vector2.new(0, 1)
     railBottom.Position = UDim2.new(0, 0, 1, 0)
-    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 36)
+    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 44)
     railBottom.BackgroundTransparency = 1
     railBottom.BorderSizePixel = 0
     railBottom.ZIndex = 6
@@ -227,6 +227,13 @@ function M.new(root, opts)
     railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
     railBottomLayout.Padding = UDim.new(0, 5)
     railBottomLayout.Parent = railBottom
+
+    -- Lifts the pinned strip's contents off the very bottom edge. Combined
+    -- with the strip's own extra height, this puts the gear ~6px above the
+    -- body edge without pushing the rule out the top.
+    local railBottomPad = Instance.new("UIPadding")
+    railBottomPad.PaddingBottom = UDim.new(0, 6)
+    railBottomPad.Parent = railBottom
 
     -- A UIListLayout arranges every child, so the rule is part of the list
     -- rather than positioned over it -- the same trap that makes a full-width
