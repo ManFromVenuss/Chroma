@@ -3672,6 +3672,8 @@ __modules["core/page"] = function(require)
 -- is a boundary that costs more than it earns.
 
 local Column = require("core/column")
+local Icons = require("core/icons")
+local lucideGlyphs = require("core/lucide_glyphs")
 
 local M = {}
 
@@ -3778,28 +3780,43 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    -- An rbxassetid works because it is just an Image; anything else falls
-    -- back to the page name's first letter.
+    local resolved = Icons.resolveIcon(opts.Icon, lucideGlyphs, root.iconFont ~= nil)
+
+    -- The consumer passed a Lucide name but nothing resolved it. Warn once so
+    -- a typo shows up during development rather than as a silent letter --
+    -- Chroma's error, not the consumer's fault.
+    if resolved.kind == "letter" and type(opts.Icon) == "string"
+        and opts.Icon ~= "" and opts.Icon:sub(1, 13) ~= "rbxassetid://" then
+        if root.iconFont ~= nil and lucideGlyphs[opts.Icon] == nil then
+            warn(string.format(
+                "[Chroma] page '%s' Icon '%s' is not a Lucide name; falling back",
+                tostring(name), tostring(opts.Icon)))
+        end
+    end
+
     local glyph
-    if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
+    if resolved.kind == "asset" then
         glyph = Instance.new("ImageLabel")
-        glyph.Image = opts.Icon
+        glyph.Image = resolved.value
         glyph.Size = UDim2.fromOffset(14, 14)
         glyph.BackgroundTransparency = 1
     else
         glyph = Instance.new("TextLabel")
-        -- A non-asset Icon string is used verbatim, which is how the settings
-        -- page gets its gear: U+2699, verified in-game to render in both
-        -- Ubuntu and Code (U+2731 drew as an empty box in the same probe).
-        -- Falling back to the page's initial keeps every other page working
-        -- unchanged, and an asset id swaps in a real icon instead.
-        glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
-            or name:sub(1, 1):upper()
-        glyph.Font = Enum.Font.Ubuntu
-        glyph.TextSize = 12
         glyph.Size = UDim2.fromOffset(14, 14)
         glyph.BackgroundTransparency = 1
         theme:bind(glyph, "TextColor3", "TextDim")
+        if resolved.kind == "glyph" then
+            -- Lucide font glyph: sized larger because the strokes are thinner
+            -- than Ubuntu at 12pt, and Roblox's Font value carries the face.
+            glyph.FontFace = root.iconFont
+            glyph.TextSize = 14
+            glyph.Text = utf8.char(resolved.codepoint)
+        else
+            -- Letter fallback: first character of the page name, in Ubuntu.
+            glyph.Font = Enum.Font.Ubuntu
+            glyph.TextSize = 12
+            glyph.Text = name:sub(1, 1):upper()
+        end
     end
     glyph.Name = "glyph"
     glyph.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4799,10 +4816,9 @@ __modules["core/settings"] = function(require)
 local M = {}
 local ConfigUI = require("core/configui")
 
--- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
--- so no image asset is needed; a Lucide asset id could replace it here
--- without touching anything else.
-local GEAR = "\u{2699}"
+-- Lucide's "settings" is a gear; page.lua renders it in the Lucide font when
+-- loaded, and falls back to a first-letter "S" when the font is missing.
+local GEAR = "settings"
 
 function M.build(root, window)
     local theme = root.theme
@@ -5378,6 +5394,7 @@ local Anim = require("core/anim")
 local Backdrop = require("core/backdrop")
 local Config = require("core/config")
 local Cursor = require("core/cursor")
+local Icons = require("core/icons")
 local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
@@ -5629,6 +5646,10 @@ function M.new(root, opts)
     -- handed one.
     -- Created before any page exists, because container.lua registers flags as
     -- it builds and the settings page below is itself a consumer.
+    -- Load the Lucide font before the settings page is built: it uses
+    -- Icon = "settings", so a late load would render the gear as an "S".
+    Icons.load(root)
+
     local configFolder = opts.ConfigFolder or opts.Name or "chroma"
 
     root.config = Config.new(root, configFolder)
