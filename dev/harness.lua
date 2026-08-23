@@ -32,7 +32,7 @@ local Win = Chroma:Window({
 })
 
 --== page 1: sub-tabs, both widget types, descriptions ==--
-local combat = Win:Page({ Name = "Combat" })
+local combat = Win:Page({ Name = "Combat", Icon = "crosshair" })
 
 local general = combat:Tab("General")
 local gl, gr = general:Column(), general:Column()
@@ -61,7 +61,7 @@ pistols:Toggle({ Name = "Enabled", Flag = "pistols_enabled", Default = true })
 pistols:Slider({ Name = "Hitchance", Flag = "pistols_hitchance", Min = 0, Max = 100, Default = 62, Unit = "%" })
 
 --== page 2: no tabs, and a deliberately overfilled column to force scrolling ==--
-local visuals = Win:Page({ Name = "Visuals" })
+local visuals = Win:Page({ Name = "Visuals", Icon = "eye" })
 local vl, vr = visuals:Column(), visuals:Column()
 
 -- 22 rows at 19px, plus the container title and padding, comes to roughly 450px
@@ -82,14 +82,14 @@ world:Separator()
 world:Toggle({ Name = "No fog", Flag = "world_no_fog" })
 
 --== page 3: weighted columns ==--
-local misc = Win:Page({ Name = "Misc" })
+local misc = Win:Page({ Name = "Misc", Icon = "boxes" })
 local wide = misc:Column({ Weight = 2 })
 local narrow = misc:Column()
 wide:Container("Wide column"):Label({ Text = "This column has Weight = 2." })
 narrow:Container("Narrow"):Label({ Text = "Weight = 1." })
 
 --== page 4: M3 phase A widgets ==--
-local m3 = Win:Page({ Name = "Widgets" })
+local m3 = Win:Page({ Name = "Widgets", Icon = "sliders-horizontal" })
 local ml, mr = m3:Column(), m3:Column()
 
 local picks = ml:Container("Dropdowns")
@@ -159,6 +159,9 @@ cfg:Button({ Text = "Dump flags", Callback = function()
         "trigger:", tostring(Chroma.Flags.m3_trigger))
     print("[Chroma dev] trigger held:", Win:Flag("m3_trigger"):IsHeld())
 end })
+
+-- Deliberately mistyped: the branch that warns and falls back to a letter.
+Win:Page({ Name = "Fake", Icon = "not-a-real-icon" })
 
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)
