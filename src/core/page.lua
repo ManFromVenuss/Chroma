@@ -6,6 +6,8 @@
 -- is a boundary that costs more than it earns.
 
 local Column = require("core/column")
+local Icons = require("core/icons")
+local lucideAssets = require("core/lucide_assets")
 
 local M = {}
 
@@ -112,33 +114,72 @@ function M.new(root, window, opts)
     marker.Parent = button
     theme:bind(marker, "BackgroundColor3", "Accent")
 
-    -- An rbxassetid works because it is just an Image; anything else falls
-    -- back to the page name's first letter.
+    local resolved = Icons.resolveIcon(opts.Icon, lucideAssets)
+
+    -- The consumer passed something Chroma cannot resolve into an image. Warn
+    -- once so a typo shows up during development rather than as a silent
+    -- letter -- Chroma's error, not the consumer's fault.
+    if resolved.kind == "letter" and type(opts.Icon) == "string" and opts.Icon ~= "" then
+        warn(string.format(
+            "[Chroma] page '%s' Icon '%s' is not a Lucide name; falling back",
+            tostring(name), tostring(opts.Icon)))
+    end
+
     local glyph
-    if type(opts.Icon) == "string" and opts.Icon:match("^rbxassetid://") then
+    if resolved.kind == "asset" then
         glyph = Instance.new("ImageLabel")
-        glyph.Image = opts.Icon
+        glyph.Image = resolved.value
         glyph.Size = UDim2.fromOffset(14, 14)
         glyph.BackgroundTransparency = 1
     else
+        -- Letter fallback: first character of the page name, in Ubuntu.
         glyph = Instance.new("TextLabel")
-        -- A non-asset Icon string is used verbatim, which is how the settings
-        -- page gets its gear: U+2699, verified in-game to render in both
-        -- Ubuntu and Code (U+2731 drew as an empty box in the same probe).
-        -- Falling back to the page's initial keeps every other page working
-        -- unchanged, and an asset id swaps in a real icon instead.
-        glyph.Text = (type(opts.Icon) == "string" and opts.Icon ~= "" and opts.Icon)
-            or name:sub(1, 1):upper()
-        glyph.Font = Enum.Font.Ubuntu
-        glyph.TextSize = 12
         glyph.Size = UDim2.fromOffset(14, 14)
         glyph.BackgroundTransparency = 1
+        glyph.Font = Enum.Font.Ubuntu
+        glyph.TextSize = 12
+        glyph.Text = name:sub(1, 1):upper()
         theme:bind(glyph, "TextColor3", "TextDim")
     end
     glyph.Name = "glyph"
     glyph.AnchorPoint = Vector2.new(0.5, 0.5)
-    glyph.Position = UDim2.fromScale(0.5, 0.5)
+    -- List pages pin the glyph at x=14 so it does not drift into the page-name
+    -- text as the rail widens. Pinned pages have no text and want the glyph to
+    -- track the strip's centre as the strip widens with the rail.
+    if opts.Pinned then
+        glyph.Position = UDim2.fromScale(0.5, 0.5)
+    else
+        glyph.Position = UDim2.new(0, 14, 0.5, 0)
+    end
     glyph.Parent = button
+
+    -- When the rail is expanded, the page name appears to the right of the
+    -- glyph. It exists at construction, invisible via TextTransparency, and
+    -- the rail's expand animation tweens both the transparency and the rail
+    -- width in lockstep.
+    --
+    -- Only real (non-pinned) rail pages get a text: the pinned strip is
+    -- narrow, and expanding it would fight the top rail's own animation.
+    --
+    -- `self` does not exist yet at this point in M.new; the local `pageText`
+    -- is stored on `self` further down when the setmetatable table is built.
+    local pageText
+    if not opts.Pinned then
+        pageText = Instance.new("TextLabel")
+        pageText.Name = "text"
+        pageText.AnchorPoint = Vector2.new(0, 0.5)
+        pageText.Position = UDim2.new(0, 28, 0.5, 0)
+        pageText.Size = UDim2.new(1, -34, 1, 0)
+        pageText.BackgroundTransparency = 1
+        pageText.Font = Enum.Font.Ubuntu
+        pageText.TextSize = 12
+        pageText.TextXAlignment = Enum.TextXAlignment.Left
+        pageText.TextTruncate = Enum.TextTruncate.AtEnd
+        pageText.Text = name
+        pageText.TextTransparency = 1
+        pageText.Parent = button
+        theme:bind(pageText, "TextColor3", "TextDim")
+    end
 
     --== page body ==--
     local body = Instance.new("Frame")
@@ -209,6 +250,7 @@ function M.new(root, window, opts)
         _button = button,
         _marker = marker,
         _glyph = glyph,
+        _text = pageText,
         name = name,
         body = body,
         pinned = opts.Pinned == true,
@@ -231,9 +273,17 @@ function Page:setActive(active)
     else
         self._theme:unbind(self._button)
     end
+    -- Both letter fallbacks (TextLabel) and Lucide icons (ImageLabel) tint on
+    -- active state, through their respective colour properties.
+    self._theme:unbind(self._glyph)
     if self._glyph:IsA("TextLabel") then
-        self._theme:unbind(self._glyph)
         self._theme:bind(self._glyph, "TextColor3", active and "TextBright" or "TextDim")
+    else
+        self._theme:bind(self._glyph, "ImageColor3", active and "TextBright" or "TextDim")
+    end
+    if self._text then
+        self._theme:unbind(self._text)
+        self._theme:bind(self._text, "TextColor3", active and "TextBright" or "TextDim")
     end
 end
 

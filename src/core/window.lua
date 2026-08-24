@@ -10,6 +10,7 @@ local Cursor = require("core/cursor")
 local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
+local Rail = require("core/rail")
 local Settings = require("core/settings")
 local Tooltip = require("core/tooltip")
 
@@ -212,7 +213,7 @@ function M.new(root, opts)
     railBottom.Name = "railBottom"
     railBottom.AnchorPoint = Vector2.new(0, 1)
     railBottom.Position = UDim2.new(0, 0, 1, 0)
-    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 36)
+    railBottom.Size = UDim2.fromOffset(RAIL_WIDTH, 44)
     railBottom.BackgroundTransparency = 1
     railBottom.BorderSizePixel = 0
     railBottom.ZIndex = 6
@@ -226,6 +227,13 @@ function M.new(root, opts)
     railBottomLayout.SortOrder = Enum.SortOrder.LayoutOrder
     railBottomLayout.Padding = UDim.new(0, 5)
     railBottomLayout.Parent = railBottom
+
+    -- Lifts the pinned strip's contents off the very bottom edge. Combined
+    -- with the strip's own extra height, this puts the gear ~6px above the
+    -- body edge without pushing the rule out the top.
+    local railBottomPad = Instance.new("UIPadding")
+    railBottomPad.PaddingBottom = UDim.new(0, 6)
+    railBottomPad.Parent = railBottom
 
     -- A UIListLayout arranges every child, so the rule is part of the list
     -- rather than positioned over it -- the same trap that makes a full-width
@@ -300,25 +308,41 @@ function M.new(root, opts)
     grip.ZIndex = 30
     grip.Parent = contents
 
+    -- The two visible bars carry the same HairA -> HairB gradient as the
+    -- outline. Without a gradient, the grip's plain Accent equals HairA only
+    -- and reads as a different colour from the outline at any instant while
+    -- the accent animates.
+    --
+    -- A UIGradient multiplies its element's colour, so the frames' own
+    -- BackgroundColor3 stays white -- a Frame defaults to grey (163,162,165)
+    -- and would render the gradient at about 64% intensity.
     local gripBottom = Instance.new("Frame")
     gripBottom.Name = "gripBottom"
     gripBottom.Size = UDim2.new(1, 0, 0, 2)
     gripBottom.Position = UDim2.new(0, 0, 1, -2)
+    gripBottom.BackgroundColor3 = Color3.new(1, 1, 1)
     gripBottom.BackgroundTransparency = 0.35
     gripBottom.BorderSizePixel = 0
     gripBottom.ZIndex = 30
     gripBottom.Parent = grip
-    theme:bind(gripBottom, "BackgroundColor3", "Accent")
+    local gripBottomGradient = Instance.new("UIGradient")
+    gripBottomGradient.Color = ColorSequence.new(theme:get("HairA"), theme:get("HairB"))
+    gripBottomGradient.Parent = gripBottom
+    self._gripBottomGradient = gripBottomGradient
 
     local gripRight = Instance.new("Frame")
     gripRight.Name = "gripRight"
     gripRight.Size = UDim2.new(0, 2, 1, 0)
     gripRight.Position = UDim2.new(1, -2, 0, 0)
+    gripRight.BackgroundColor3 = Color3.new(1, 1, 1)
     gripRight.BackgroundTransparency = 0.35
     gripRight.BorderSizePixel = 0
     gripRight.ZIndex = 30
     gripRight.Parent = grip
-    theme:bind(gripRight, "BackgroundColor3", "Accent")
+    local gripRightGradient = Instance.new("UIGradient")
+    gripRightGradient.Color = ColorSequence.new(theme:get("HairA"), theme:get("HairB"))
+    gripRightGradient.Parent = gripRight
+    self._gripRightGradient = gripRightGradient
 
     self:_makeDragHandle(grip, function(delta, start)
         -- Read the viewport at drag time, not construction: the player may
@@ -376,6 +400,8 @@ function M.new(root, opts)
         self._hairGradient.Color = hairColor
         self._hairGradientBottom.Color = hairColor
         self._bodyStrokeGradient.Color = hairColor
+        self._gripBottomGradient.Color = hairColor
+        self._gripRightGradient.Color = hairColor
     end)
 
     -- Built before any consumer page exists; fine, because a pinned page
@@ -384,6 +410,10 @@ function M.new(root, opts)
     if opts.Settings ~= false then
         self._settingsPage = Settings.build(root, self)
     end
+
+    -- After every page is built (Settings included), so the tween can walk
+    -- them. Rail.new is a no-op when Rail = { HoverExpand = false }.
+    self._rail_ctl = Rail.new(root, self, opts.Rail)
 
     self:setSize(size.X, size.Y)
     self._anim:_snap(false)

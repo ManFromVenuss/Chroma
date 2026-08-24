@@ -7,10 +7,9 @@
 local M = {}
 local ConfigUI = require("core/configui")
 
--- U+2699. Verified in-game to render as a real gear in both Ubuntu and Code,
--- so no image asset is needed; a Lucide asset id could replace it here
--- without touching anything else.
-local GEAR = "\u{2699}"
+-- Lucide's "settings" is a gear; page.lua renders it in the Lucide font when
+-- loaded, and falls back to a first-letter "S" when the font is missing.
+local GEAR = "settings"
 
 function M.build(root, window)
     local theme = root.theme

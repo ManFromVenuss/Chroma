@@ -6,6 +6,13 @@ Design notes are kept locally rather than in the repo. Where a decision was reac
 or cost a debugging cycle, the reason is in a comment next to the code — those comments are the
 record, so don't strip them.
 
+## Credits
+
+The Lucide icons the rail can render (`Icon = "settings"` and friends) are served as Roblox image
+assets by [icons.rest](https://www.icons.rest), a community project that pre-uploaded every Lucide
+glyph. Chroma bakes that project's name-to-asset-id mapping into `src/core/lucide_assets.lua`;
+regenerate with `python tools/gen_lucide_assets.py` when the upstream mapping changes.
+
 ## Invariants
 
 1. **`src/` is bundled, never loaded directly.** `build/build.py` wraps each module as
@@ -56,7 +63,8 @@ record, so don't strip them.
 ## Verification
 
 - `lua tests/run.lua` — unit tests for every pure module. Must be green before committing.
-- `python build/build.py --install` — builds, and copies the bundle into the Potassium workspace.
+- `python build/build.py --install` — builds, and copies the bundle and dev harness into the Volt
+  workspace.
 - In-game: `dofile("chroma_dev.lua")` through the Roblox MCP, driven by `dev/harness.lua`.
   Instance behaviour is verified here, not by stubbing the Instance API.
 - Announce in-game tests before running them and wait, since the user cannot read messages while
