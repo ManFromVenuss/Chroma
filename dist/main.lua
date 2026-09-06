@@ -6157,6 +6157,10 @@ function M.new(root, opts)
     local configFolder = opts.ConfigFolder or opts.Name or "chroma"
 
     root.config = Config.new(root, configFolder)
+    -- Toasts must be constructed before primeAutoload, since primeAutoload's
+    -- corrupt-autoload warn calls root:notify -- and root:notify only
+    -- surfaces a toast once Toasts.new has registered the notify handler.
+    root.toasts = Toasts.new(root)
     root.config:primeAutoload()
     -- coroutine.running() here is the consuming script's own thread, because
     -- Chroma:Window() is called directly from it.
@@ -6169,7 +6173,6 @@ function M.new(root, opts)
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
-    root.toasts = Toasts.new(root)
     root.watermark = Watermark.new(root, self, opts)
     root.hotkeys = Hotkeys.new(root, self)
 
