@@ -130,7 +130,8 @@ end
 local function applyOne(self, flag, value, configName)
     local ok, err = pcall(self._apply, self, flag, value)
     if not ok then
-        warn(string.format("[Chroma] config '%s' flag '%s' failed to load: %s",
+        self._root:notify("warn", string.format(
+            "config '%s' flag '%s' failed to load: %s",
             tostring(configName), tostring(flag), tostring(err)))
     end
 end
@@ -234,7 +235,7 @@ function Config:Load(rawName)
     if not decoded or type(data) ~= "table" then
         -- Corrupt on disk. Warn and leave the menu alone rather than erroring:
         -- a bad file must not cost the user their whole session.
-        warn("[Chroma] config '" .. name .. "' is unreadable and was ignored")
+        self._root:notify("warn", "config '" .. name .. "' is unreadable and was ignored")
         return false, "corrupt config"
     end
 
@@ -242,7 +243,7 @@ function Config:Load(rawName)
     if #unknown > 0 then
         -- Almost always a renamed Flag, which strands every value saved under
         -- the old name. Silence here is what makes that expensive to find.
-        warn("[Chroma] config '" .. name .. "' has " .. #unknown ..
+        self._root:notify("warn", "config '" .. name .. "' has " .. #unknown ..
             " flag(s) with no widget: " .. table.concat(unknown, ", "))
     end
 
@@ -326,7 +327,8 @@ function Config:primeAutoload()
         return HttpService:JSONDecode(text)
     end)
     if not decoded or type(data) ~= "table" then
-        warn("[Chroma] autoload config '" .. name .. "' is unreadable and was ignored")
+        self._root:notify("warn",
+            "autoload config '" .. name .. "' is unreadable and was ignored")
         return
     end
 
