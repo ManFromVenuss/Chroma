@@ -14,6 +14,7 @@ local Rail = require("core/rail")
 local Settings = require("core/settings")
 local Toasts = require("core/toasts")
 local Tooltip = require("core/tooltip")
+local Watermark = require("core/watermark")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() runs on require.
 local UserInputService
@@ -283,6 +284,7 @@ function M.new(root, opts)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
     root.toasts = Toasts.new(root)
+    root.watermark = Watermark.new(root, self, opts)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)

@@ -110,6 +110,13 @@ function M.build(root, window)
         -- and each reflow, so a change here is picked up on the next tick.
     })
 
+    shell:Toggle({
+        Name = "Show watermark",
+        Flag = "chroma_watermark_show",
+        Default = true,
+        -- Watermark reads Chroma.Flags each refresh interval, no Callback.
+    })
+
     --== cursor ==--
     local pointer = right:Container("Cursor")
 
