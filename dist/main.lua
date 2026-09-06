@@ -1638,19 +1638,24 @@ function Hotkeys:_rebuild()
     local optedIn = {}
     for flag, widget in pairs(self._root.config._widgets) do
         if type(widget.ShowsInHotkeys) == "function" and widget:ShowsInHotkeys() then
-            table.insert(optedIn, widget)
+            table.insert(optedIn, { flag = flag, widget = widget })
         end
     end
 
-    -- Sort by Name so rows stay in a stable order as binds toggle.
+    -- Sort by Name so rows stay in a stable order as binds toggle. Tiebreak
+    -- on flag (unique per widget) since table.sort is not stable and pairs()
+    -- enumeration order is undefined -- without it, two same-named rows
+    -- would flap between frames.
     table.sort(optedIn, function(a, b)
-        return tostring(a._label) < tostring(b._label)
+        local la, lb = tostring(a.widget._label), tostring(b.widget._label)
+        if la ~= lb then return la < lb end
+        return a.flag < b.flag
     end)
 
     -- Track which widgets still have rows, so orphans get destroyed.
     local seen = {}
     for i = 1, #optedIn do
-        local widget = optedIn[i]
+        local widget = optedIn[i].widget
         seen[widget] = true
 
         local row = self._rows[widget]
