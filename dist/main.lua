@@ -1229,6 +1229,15 @@ for name, widget in pairs(widgets) do
             self._root.config:register(opts.Flag, built)
         end
 
+        -- Hotkey = true is Keybind-only: no other widget has an IsHeld state
+        -- to feed the overlay. Silently ignoring it would leave a consumer
+        -- wondering why their Toggle never appears.
+        if opts.Hotkey ~= nil and name ~= "Keybind" then
+            error(string.format(
+                "chroma: %s '%s' cannot use Hotkey; only Keybind can",
+                name, tostring(opts.Name)), 2)
+        end
+
         return built
     end
 end
@@ -1481,6 +1490,27 @@ function M.new(root, parent, opts)
     end
 
     return api
+end
+
+return M
+end
+
+__modules["core/hotkeys"] = function(require)
+-- Hotkeys: pure formatRow that produces a display string per opted-in Keybind,
+-- plus (from the next task) the overlay panel.
+--
+-- Pure: Lua 5.4 / Luau intersection.
+
+local M = {}
+
+-- Always-mode reads as permanently active regardless of a bind. Any other mode
+-- shows its key label -- which is "NONE" when the bind is unset (from
+-- Keybind.formatKey).
+function M.formatRow(name, mode, keyLabel)
+    if mode == "Always" then
+        return "[always] " .. tostring(name)
+    end
+    return "[" .. tostring(keyLabel) .. "] " .. tostring(name)
 end
 
 return M
@@ -7619,6 +7649,7 @@ function M.new(root, row, opts)
         _label = opts.Name or "Keybind",
         _callback = opts.Callback,
         _listeners = {},
+        _showInHotkeys = opts.Hotkey == true,
     }, Keybind)
 
     for i = 1, #MODES do
@@ -7846,6 +7877,10 @@ function Keybind:IsHeld()
     if self._mode == "Always" then return true end
     if self._mode == "Toggle" then return self._toggled end
     return self._down
+end
+
+function Keybind:ShowsInHotkeys()
+    return self._showInHotkeys
 end
 
 -- Get() returns only the bind, but the mode is state as well, so the config

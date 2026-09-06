@@ -115,6 +115,7 @@ function M.new(root, row, opts)
         _label = opts.Name or "Keybind",
         _callback = opts.Callback,
         _listeners = {},
+        _showInHotkeys = opts.Hotkey == true,
     }, Keybind)
 
     for i = 1, #MODES do
@@ -342,6 +343,10 @@ function Keybind:IsHeld()
     if self._mode == "Always" then return true end
     if self._mode == "Toggle" then return self._toggled end
     return self._down
+end
+
+function Keybind:ShowsInHotkeys()
+    return self._showInHotkeys
 end
 
 -- Get() returns only the bind, but the mode is state as well, so the config

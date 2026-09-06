@@ -116,6 +116,15 @@ for name, widget in pairs(widgets) do
             self._root.config:register(opts.Flag, built)
         end
 
+        -- Hotkey = true is Keybind-only: no other widget has an IsHeld state
+        -- to feed the overlay. Silently ignoring it would leave a consumer
+        -- wondering why their Toggle never appears.
+        if opts.Hotkey ~= nil and name ~= "Keybind" then
+            error(string.format(
+                "chroma: %s '%s' cannot use Hotkey; only Keybind can",
+                name, tostring(opts.Name)), 2)
+        end
+
         return built
     end
 end
