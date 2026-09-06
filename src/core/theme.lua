@@ -23,6 +23,11 @@ local STORED = {
     Text            = { 190, 194, 195 },
     TextDim         = { 120, 125, 126 },
     TextBright      = { 242, 244, 244 },
+    -- Toast severity stripes. Muted rather than pure -- they sit against a
+    -- near-black background where saturated colours look toy-like.
+    Success         = { 60, 180, 100 },
+    Warn            = { 220, 170, 60 },
+    Error           = { 220, 80, 80 },
 }
 
 -- Surfaces that are translucent by default. Anything absent is opaque.
