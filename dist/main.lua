@@ -5303,6 +5303,22 @@ function M.new(root)
     return self
 end
 
+-- Tracks a tween in _tweens for Unload cancellation, and prunes it on
+-- Completed so the array does not grow for the life of the session. Returns
+-- the tween unchanged for a fluent call site.
+function Toasts:_track(tween)
+    table.insert(self._tweens, tween)
+    tween.Completed:Connect(function()
+        for i = 1, #self._tweens do
+            if self._tweens[i] == tween then
+                table.remove(self._tweens, i)
+                return
+            end
+        end
+    end)
+    return tween
+end
+
 function Toasts:_position()
     -- Read via Chroma.Flags so a settings-page change updates immediately.
     local flag = self._root.config and self._root.config.Flags[FLAG_POSITION]
@@ -5346,6 +5362,9 @@ function Toasts:show(text, kind, opts)
     -- capacity pressure means the user is not tracking the old one anyway.
     while #self._toasts > 5 do
         local evicted = table.remove(self._toasts)
+        if evicted._expireThread then
+            pcall(task.cancel, evicted._expireThread)
+        end
         evicted.frame:Destroy()
     end
 
@@ -5410,10 +5429,9 @@ function Toasts:_dismiss(id)
             if entry._expireThread then
                 pcall(task.cancel, entry._expireThread)
             end
-            local tween = TweenService:Create(entry.frame,
+            local tween = self:_track(TweenService:Create(entry.frame,
                 TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-                { BackgroundTransparency = 1 })
-            table.insert(self._tweens, tween)
+                { BackgroundTransparency = 1 }))
             tween:Play()
             tween.Completed:Connect(function() entry.frame:Destroy() end)
             self:_reflow(true)
@@ -5433,11 +5451,9 @@ function Toasts:_reflow(animate)
         local x, y = self._root:toLayerSpace(positions[i].x, positions[i].y, self._layer)
         local target = UDim2.fromOffset(x, y)
         if animate then
-            local tween = TweenService:Create(entry.frame,
+            self:_track(TweenService:Create(entry.frame,
                 TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
-                { Position = target })
-            table.insert(self._tweens, tween)
-            tween:Play()
+                { Position = target })):Play()
         else
             entry.frame.Position = target
         end
