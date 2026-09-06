@@ -100,6 +100,16 @@ function M.build(root, window)
         end,
     })
 
+    shell:Dropdown({
+        Name = "Toast position",
+        Flag = "chroma_toasts_position",
+        Options = { "top-right", "top-left", "bottom-right", "bottom-left" },
+        Default = "top-right",
+        Description = "Which corner notifications appear in.",
+        -- No Callback: the toast manager reads Chroma.Flags[FLAG] each show
+        -- and each reflow, so a change here is picked up on the next tick.
+    })
+
     --== cursor ==--
     local pointer = right:Container("Cursor")
 

@@ -12,6 +12,7 @@ local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Rail = require("core/rail")
 local Settings = require("core/settings")
+local Toasts = require("core/toasts")
 local Tooltip = require("core/tooltip")
 
 -- Resolved lazily in M.new: a module-scope game:GetService() runs on require.
@@ -281,6 +282,7 @@ function M.new(root, opts)
     root.tooltip = Tooltip.new(root)
     root.popup = Popup.new(root)
     root.popup:bindDismissal(self)
+    root.toasts = Toasts.new(root)
 
     --== drag and resize ==--
     self:_makeDragHandle(bar, function(delta, start)

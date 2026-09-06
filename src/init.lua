@@ -17,6 +17,16 @@ function Chroma:Window(opts)
     return self.window
 end
 
+-- Fire-and-forget notification. `kind` is one of "info", "success", "warn",
+-- "error" (defaults to info). `opts.Duration` overrides the per-kind default.
+function Chroma:Notify(text, kind, opts)
+    if not self.root then
+        warn("[Chroma] Notify called before Chroma:Window; ignoring: " .. tostring(text))
+        return
+    end
+    self.root.toasts:show(text, kind, opts)
+end
+
 function Chroma:Unload()
     local UserInputService = game:GetService("UserInputService")
     UserInputService.ModalEnabled = false
