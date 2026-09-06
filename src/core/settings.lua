@@ -117,6 +117,12 @@ function M.build(root, window)
         -- Watermark reads Chroma.Flags each refresh interval, no Callback.
     })
 
+    shell:Toggle({
+        Name = "Show hotkey overlay",
+        Flag = "chroma_hotkey_show",
+        Default = true,
+    })
+
     --== cursor ==--
     local pointer = right:Container("Cursor")
 
