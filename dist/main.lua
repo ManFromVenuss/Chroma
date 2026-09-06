@@ -690,6 +690,30 @@ function Config:get(flag)
     return self._widgets[flag]
 end
 
+-- A flag that no widget owns (watermark position, hotkey overlay position).
+-- Both writes -- to the live Flags mirror and to _pending -- are needed:
+-- Flags feeds any consumer polling it live, and _pending feeds the next Save
+-- so the value survives a reload. Config:_snapshot only sees widget-owned
+-- flags, so unowned flags need to reach the file through _pending.
+function Config:setUnownedFlag(flag, value)
+    self.Flags[flag] = value
+    self._pending[flag] = serialise.encode(value)
+end
+
+-- Reads a flag value, from the live Flags mirror if present, otherwise
+-- decoding from _pending. The watermark and hotkey managers use this at
+-- construction time to pick up their saved positions: their managers are
+-- built inside Chroma:Window() before finish() has hydrated unowned flags
+-- into Flags, so a plain Flags[name] read would see nil where the file has
+-- a value.
+function Config:flagValue(flag)
+    local live = self.Flags[flag]
+    if live ~= nil then return live end
+    local pending = self._pending[flag]
+    if pending == nil then return nil end
+    return serialise.decode(pending)
+end
+
 -- Widgets whose state is more than Get() returns say so with Save()/Load().
 function Config:_apply(flag, encoded)
     local widget = self._widgets[flag]
@@ -940,6 +964,15 @@ function Config:finish()
             applyOne(self, flag, value, self._autoloadName)
             self._pending[flag] = nil
             applied = applied + 1
+        else
+            -- Unowned flag: decode it into Flags so a consumer that reads
+            -- Chroma.Flags[flag] at boot (the watermark and hotkey managers,
+            -- for their saved positions) sees the loaded value. It stays in
+            -- _pending too so the next Save picks it back up.
+            local decoded = serialise.decode(value)
+            if decoded ~= nil then
+                self.Flags[flag] = decoded
+            end
         end
     end
 
@@ -1609,8 +1642,10 @@ function Hotkeys:_wireDrag()
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         if not dragging then return end
         dragging = false
-        self._root.config.Flags[FLAG_POS] = Vector2.new(
-            self._panel.Position.X.Offset, self._panel.Position.Y.Offset)
+        -- Persist through the config manager so a Save picks it up. No widget
+        -- owns this flag; setUnownedFlag handles the Flags + _pending pair.
+        self._root.config:setUnownedFlag(FLAG_POS, Vector2.new(
+            self._panel.Position.X.Offset, self._panel.Position.Y.Offset))
     end))
 
     self._root:keep(RunService.Heartbeat:Connect(function()
@@ -1716,7 +1751,9 @@ function Hotkeys:_buildRow(widget)
 end
 
 function Hotkeys:_applyPositionFromFlag()
-    local saved = self._root.config.Flags[FLAG_POS]
+    -- flagValue rather than Flags[FLAG_POS]: this runs during Chroma:Window,
+    -- before finish() has hydrated unowned flags into Flags from _pending.
+    local saved = self._root.config:flagValue(FLAG_POS)
     local viewport = workspace.CurrentCamera.ViewportSize
     local pos
     if typeof(saved) == "Vector2" then
@@ -1735,8 +1772,11 @@ function Hotkeys:_applyPositionFromFlag()
     if pos == nil then
         pos = { x = PAD, y = viewport.Y - ROW_HEIGHT * 4 - PAD }
     end
-    local x, y = self._root:toLayerSpace(pos.x, pos.y, self._root.overlayLayer)
-    self._panel.Position = UDim2.fromOffset(x, y)
+    -- Raw viewport coords go straight to Position. toLayerSpace is for
+    -- converting AbsolutePosition (already inset-shifted) into a Position
+    -- offset; using it on raw viewport coords double-compensates and lands
+    -- the panel 58px below the visible bottom.
+    self._panel.Position = UDim2.fromOffset(pos.x, pos.y)
 end
 
 return M
@@ -4746,6 +4786,13 @@ function M.encode(value)
         return { [TAG] = "Enum", enum = tostring(value.EnumType), name = value.Name }
     end
 
+    if kind == "Vector2" then
+        -- Used by the M6 watermark and hotkey overlay to persist their
+        -- draggable positions. Reintroduced -- M5 dropped Vector2 support
+        -- because no widget produced one at the time.
+        return { [TAG] = "Vector2", x = value.X, y = value.Y }
+    end
+
     if kind == "table" then
         local out = {}
         for k, v in pairs(value) do
@@ -4777,6 +4824,10 @@ function M.decode(value)
         local ok, item = pcall(function() return group[value.name] end)
         if not ok then return nil end
         return item
+    end
+
+    if tag == "Vector2" then
+        return Vector2.new(value.x, value.y)
     end
 
     if tag ~= nil then
@@ -5815,16 +5866,12 @@ function Watermark:_wireDrag()
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         if not dragging then return end
         dragging = false
-        -- Persist the final position through the config manager. Stored as
-        -- Vector2 so serialise.lua's tagged type handles it.
+        -- Persist the final position. No widget owns this flag, so
+        -- setUnownedFlag writes both to Flags (for the live mirror) and to
+        -- _pending (so the next SaveConfig serialises it).
         local pill = self._pill
-        self._root.config.Flags[FLAG_POS] =
-            Vector2.new(pill.Position.X.Offset, pill.Position.Y.Offset)
-        -- The Flags table is a live mirror; a widget-driven write would fire
-        -- OnChanged. Here we set the value directly because no widget owns
-        -- this flag -- push it out so a subsequent SaveConfig picks it up.
-        local widget = self._root.config:get(FLAG_POS)
-        if widget then widget:Set(self._root.config.Flags[FLAG_POS], true) end
+        self._root.config:setUnownedFlag(FLAG_POS,
+            Vector2.new(pill.Position.X.Offset, pill.Position.Y.Offset))
     end))
 
     -- Toggle Active whenever menu open/close changes. Poll on Heartbeat -- one
@@ -5882,7 +5929,9 @@ function Watermark:_currentText()
 end
 
 function Watermark:_applyPositionFromFlag()
-    local saved = self._root.config.Flags[FLAG_POS]
+    -- flagValue rather than Flags[FLAG_POS]: this runs during Chroma:Window,
+    -- before finish() has hydrated unowned flags into Flags from _pending.
+    local saved = self._root.config:flagValue(FLAG_POS)
     local viewport = workspace.CurrentCamera.ViewportSize
     local pos
     if typeof(saved) == "Vector2" then
@@ -5896,8 +5945,11 @@ function Watermark:_applyPositionFromFlag()
             y = viewport.Y - self._pill.Size.Y.Offset - PAD,
         }
     end
-    local x, y = self._root:toLayerSpace(pos.x, pos.y, self._root.overlayLayer)
-    self._pill.Position = UDim2.fromOffset(x, y)
+    -- Raw viewport coords go straight to Position. toLayerSpace is for
+    -- converting an AbsolutePosition (already inset-shifted) into a Position
+    -- offset; using it on raw viewport coords double-compensates and lands
+    -- the pill 58px below the visible bottom.
+    self._pill.Position = UDim2.fromOffset(pos.x, pos.y)
 end
 
 return M

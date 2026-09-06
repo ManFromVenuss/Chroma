@@ -63,8 +63,8 @@ regenerate with `python tools/gen_lucide_assets.py` when the upstream mapping ch
 ## Verification
 
 - `lua tests/run.lua` — unit tests for every pure module. Must be green before committing.
-- `python build/build.py --install` — builds, and copies the bundle and dev harness into the Volt
-  workspace.
+- `python build/build.py --install` — builds, and copies the bundle and dev harness into the
+  Potassium workspace.
 - In-game: `dofile("chroma_dev.lua")` through the Roblox MCP, driven by `dev/harness.lua`.
   Instance behaviour is verified here, not by stubbing the Instance API.
 - Announce in-game tests before running them and wait, since the user cannot read messages while

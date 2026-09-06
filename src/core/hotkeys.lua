@@ -111,8 +111,10 @@ function Hotkeys:_wireDrag()
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         if not dragging then return end
         dragging = false
-        self._root.config.Flags[FLAG_POS] = Vector2.new(
-            self._panel.Position.X.Offset, self._panel.Position.Y.Offset)
+        -- Persist through the config manager so a Save picks it up. No widget
+        -- owns this flag; setUnownedFlag handles the Flags + _pending pair.
+        self._root.config:setUnownedFlag(FLAG_POS, Vector2.new(
+            self._panel.Position.X.Offset, self._panel.Position.Y.Offset))
     end))
 
     self._root:keep(RunService.Heartbeat:Connect(function()
@@ -218,7 +220,9 @@ function Hotkeys:_buildRow(widget)
 end
 
 function Hotkeys:_applyPositionFromFlag()
-    local saved = self._root.config.Flags[FLAG_POS]
+    -- flagValue rather than Flags[FLAG_POS]: this runs during Chroma:Window,
+    -- before finish() has hydrated unowned flags into Flags from _pending.
+    local saved = self._root.config:flagValue(FLAG_POS)
     local viewport = workspace.CurrentCamera.ViewportSize
     local pos
     if typeof(saved) == "Vector2" then
@@ -237,8 +241,11 @@ function Hotkeys:_applyPositionFromFlag()
     if pos == nil then
         pos = { x = PAD, y = viewport.Y - ROW_HEIGHT * 4 - PAD }
     end
-    local x, y = self._root:toLayerSpace(pos.x, pos.y, self._root.overlayLayer)
-    self._panel.Position = UDim2.fromOffset(x, y)
+    -- Raw viewport coords go straight to Position. toLayerSpace is for
+    -- converting AbsolutePosition (already inset-shifted) into a Position
+    -- offset; using it on raw viewport coords double-compensates and lands
+    -- the panel 58px below the visible bottom.
+    self._panel.Position = UDim2.fromOffset(pos.x, pos.y)
 end
 
 return M

@@ -119,6 +119,7 @@ end })
 
 local binds = ml:Container("Keybinds")
 local trigger = binds:Keybind({ Name = "Trigger", Flag = "m3_trigger", Default = Enum.KeyCode.C, Mode = "Hold",
+    Hotkey = true,   -- appears in the M6 hotkey overlay
     Description = "Left-click to capture, Escape to clear, right-click for the mode menu." })
 local aimKey = binds:Keybind({ Name = "Aim", Flag = "m3_aim", Default = Enum.UserInputType.MouseButton2,
     Mode = "Hold" })
@@ -162,6 +163,29 @@ end })
 
 -- Deliberately mistyped: the branch that warns and falls back to a letter.
 Win:Page({ Name = "Fake", Icon = "not-a-real-icon" })
+
+--== notifications and hotkey opt-in ==--
+local notif = mr:Container("Notifications")
+notif:Button({ Text = "info toast", Callback = function()
+    Chroma:Notify("Hello from Chroma")
+end })
+notif:Button({ Text = "success toast", Callback = function()
+    Chroma:Notify("Config saved", "success")
+end })
+notif:Button({ Text = "warn toast", Callback = function()
+    Chroma:Notify("Something is off", "warn")
+end })
+notif:Button({ Text = "error toast", Callback = function()
+    Chroma:Notify("It broke", "error")
+end })
+notif:Button({ Text = "10s sticky", Callback = function()
+    Chroma:Notify("uploading logs", "info", { Duration = 10 })
+end })
+notif:Button({ Text = "spam 8", Callback = function()
+    for i = 1, 8 do
+        Chroma:Notify("burst " .. i, i % 2 == 0 and "success" or "info")
+    end
+end })
 
 print("[Chroma dev] version", Chroma.version)
 print("[Chroma dev] parent kind:", Chroma.root.parentKind)

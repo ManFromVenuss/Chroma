@@ -44,6 +44,13 @@ function M.encode(value)
         return { [TAG] = "Enum", enum = tostring(value.EnumType), name = value.Name }
     end
 
+    if kind == "Vector2" then
+        -- Used by the M6 watermark and hotkey overlay to persist their
+        -- draggable positions. Reintroduced -- M5 dropped Vector2 support
+        -- because no widget produced one at the time.
+        return { [TAG] = "Vector2", x = value.X, y = value.Y }
+    end
+
     if kind == "table" then
         local out = {}
         for k, v in pairs(value) do
@@ -75,6 +82,10 @@ function M.decode(value)
         local ok, item = pcall(function() return group[value.name] end)
         if not ok then return nil end
         return item
+    end
+
+    if tag == "Vector2" then
+        return Vector2.new(value.x, value.y)
     end
 
     if tag ~= nil then

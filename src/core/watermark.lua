@@ -143,16 +143,12 @@ function Watermark:_wireDrag()
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
         if not dragging then return end
         dragging = false
-        -- Persist the final position through the config manager. Stored as
-        -- Vector2 so serialise.lua's tagged type handles it.
+        -- Persist the final position. No widget owns this flag, so
+        -- setUnownedFlag writes both to Flags (for the live mirror) and to
+        -- _pending (so the next SaveConfig serialises it).
         local pill = self._pill
-        self._root.config.Flags[FLAG_POS] =
-            Vector2.new(pill.Position.X.Offset, pill.Position.Y.Offset)
-        -- The Flags table is a live mirror; a widget-driven write would fire
-        -- OnChanged. Here we set the value directly because no widget owns
-        -- this flag -- push it out so a subsequent SaveConfig picks it up.
-        local widget = self._root.config:get(FLAG_POS)
-        if widget then widget:Set(self._root.config.Flags[FLAG_POS], true) end
+        self._root.config:setUnownedFlag(FLAG_POS,
+            Vector2.new(pill.Position.X.Offset, pill.Position.Y.Offset))
     end))
 
     -- Toggle Active whenever menu open/close changes. Poll on Heartbeat -- one
@@ -210,7 +206,9 @@ function Watermark:_currentText()
 end
 
 function Watermark:_applyPositionFromFlag()
-    local saved = self._root.config.Flags[FLAG_POS]
+    -- flagValue rather than Flags[FLAG_POS]: this runs during Chroma:Window,
+    -- before finish() has hydrated unowned flags into Flags from _pending.
+    local saved = self._root.config:flagValue(FLAG_POS)
     local viewport = workspace.CurrentCamera.ViewportSize
     local pos
     if typeof(saved) == "Vector2" then
@@ -224,8 +222,11 @@ function Watermark:_applyPositionFromFlag()
             y = viewport.Y - self._pill.Size.Y.Offset - PAD,
         }
     end
-    local x, y = self._root:toLayerSpace(pos.x, pos.y, self._root.overlayLayer)
-    self._pill.Position = UDim2.fromOffset(x, y)
+    -- Raw viewport coords go straight to Position. toLayerSpace is for
+    -- converting an AbsolutePosition (already inset-shifted) into a Position
+    -- offset; using it on raw viewport coords double-compensates and lands
+    -- the pill 58px below the visible bottom.
+    self._pill.Position = UDim2.fromOffset(pos.x, pos.y)
 end
 
 return M

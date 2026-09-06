@@ -108,6 +108,30 @@ function Config:get(flag)
     return self._widgets[flag]
 end
 
+-- A flag that no widget owns (watermark position, hotkey overlay position).
+-- Both writes -- to the live Flags mirror and to _pending -- are needed:
+-- Flags feeds any consumer polling it live, and _pending feeds the next Save
+-- so the value survives a reload. Config:_snapshot only sees widget-owned
+-- flags, so unowned flags need to reach the file through _pending.
+function Config:setUnownedFlag(flag, value)
+    self.Flags[flag] = value
+    self._pending[flag] = serialise.encode(value)
+end
+
+-- Reads a flag value, from the live Flags mirror if present, otherwise
+-- decoding from _pending. The watermark and hotkey managers use this at
+-- construction time to pick up their saved positions: their managers are
+-- built inside Chroma:Window() before finish() has hydrated unowned flags
+-- into Flags, so a plain Flags[name] read would see nil where the file has
+-- a value.
+function Config:flagValue(flag)
+    local live = self.Flags[flag]
+    if live ~= nil then return live end
+    local pending = self._pending[flag]
+    if pending == nil then return nil end
+    return serialise.decode(pending)
+end
+
 -- Widgets whose state is more than Get() returns say so with Save()/Load().
 function Config:_apply(flag, encoded)
     local widget = self._widgets[flag]
@@ -358,6 +382,15 @@ function Config:finish()
             applyOne(self, flag, value, self._autoloadName)
             self._pending[flag] = nil
             applied = applied + 1
+        else
+            -- Unowned flag: decode it into Flags so a consumer that reads
+            -- Chroma.Flags[flag] at boot (the watermark and hotkey managers,
+            -- for their saved positions) sees the loaded value. It stays in
+            -- _pending too so the next Save picks it back up.
+            local decoded = serialise.decode(value)
+            if decoded ~= nil then
+                self.Flags[flag] = decoded
+            end
         end
     end
 

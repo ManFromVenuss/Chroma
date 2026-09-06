@@ -43,6 +43,18 @@ return {
         h.assertSame(S.decode(encoded), Enum.UserInputType.MouseButton2)
     end,
 
+    ["a Vector2 round-trips"] = function()
+        -- Used by the M6 watermark and hotkey overlay to persist their
+        -- draggable positions.
+        local encoded = S.encode(Vector2.new(300, 200))
+        h.assertEqual(encoded.__t, "Vector2")
+        h.assertEqual(encoded.x, 300)
+        h.assertEqual(encoded.y, 200)
+        local back = S.decode(encoded)
+        h.assertEqual(back.X, 300)
+        h.assertEqual(back.Y, 200)
+    end,
+
     ["arrays round-trip element by element"] = function()
         local encoded = S.encode({ "Head", "Torso" })
         h.assertEqual(encoded[1], "Head")

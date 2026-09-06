@@ -21,7 +21,7 @@ SRC = REPO / "src"
 DIST = REPO / "dist"
 VERSION = "0.1.0"
 
-WORKSPACE = Path(os.path.expandvars(r"%LOCALAPPDATA%")) / "Volt" / "workspace"
+WORKSPACE = Path(os.path.expandvars(r"%LOCALAPPDATA%")) / "Potassium" / "workspace"
 
 # Order is irrelevant to correctness because require() resolves lazily, but a
 # stable order keeps the diff readable between builds.

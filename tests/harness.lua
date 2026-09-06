@@ -144,11 +144,23 @@ end
 M.Enum = { KeyCode = makeEnum("KeyCode"), UserInputType = makeEnum("UserInputType") }
 _G.Enum = M.Enum
 
+-- Vector2 stub. Enough for serialise.lua's round trip; nothing beyond the
+-- fields the code actually reads.
+local Vector2 = { __index = {} }
+Vector2.__tostring = function(v) return string.format("Vector2(%g, %g)", v.X, v.Y) end
+Vector2.__eq = function(a, b) return a.X == b.X and a.Y == b.Y end
+function Vector2.new(x, y)
+    return setmetatable({ X = x or 0, Y = y or 0 }, Vector2)
+end
+M.Vector2 = Vector2
+_G.Vector2 = Vector2
+
 function _G.typeof(value)
     if type(value) == "table" then
         local mt = getmetatable(value)
         if mt == Color3 then return "Color3" end
         if mt == EnumItem then return "EnumItem" end
+        if mt == Vector2 then return "Vector2" end
     end
     return type(value)
 end
