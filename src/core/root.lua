@@ -67,8 +67,11 @@ function Root.new(opts)
 
     -- Layer stack. Popups and tooltips are siblings above the window, never
     -- children of a container: the window body clips for the slide animation,
-    -- so anything meant to overflow has to live outside it.
+    -- so anything meant to overflow has to live outside it. Overlays (toasts,
+    -- watermark, hotkey list) sit above the window but below popups, so an
+    -- open dropdown obscures a stale toast rather than the other way round.
     self.windowLayer = self:_layer("windows", 1)
+    self.overlayLayer = self:_layer("overlays", 50)
     self.popupLayer = self:_layer("popups", 100)
     self.tooltipLayer = self:_layer("tooltips", 200)
 
@@ -149,6 +152,23 @@ end
 
 function Root:isDegraded(feature)
     return self._degraded[feature] ~= nil
+end
+
+-- The user-affecting warn channel. Both warns to the console (so a developer
+-- watching Volt's console sees it too) and, from phase 2 onward, surfaces a
+-- toast so a running user sees the same information. Programmer-error warns
+-- keep calling warn() directly and do not toast.
+function Root:notify(kind, text)
+    warn(string.format("[Chroma] %s: %s", tostring(kind), tostring(text)))
+    if self._notifyHandler then
+        pcall(self._notifyHandler, kind, text)
+    end
+end
+
+-- Registered by the toast manager once it exists. Called through pcall so a
+-- broken handler cannot silence future warns.
+function Root:setNotifyHandler(fn)
+    self._notifyHandler = fn
 end
 
 -- task.delay cannot be cancelled, so deferred callbacks scheduled before an
