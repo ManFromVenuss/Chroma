@@ -531,7 +531,9 @@ local Container = require("core/container")
 local Column = {}
 Column.__index = Column
 
-function M.new(root, parent, opts)
+-- `tab` is the owning Tab, stored so a row indexed by search can walk back to
+-- its page. Nil in tests; the field is a leaf, nothing reads it there.
+function M.new(root, parent, opts, tab)
     opts = opts or {}
     local theme = root.theme
 
@@ -559,6 +561,7 @@ function M.new(root, parent, opts)
 
     return setmetatable({
         _root = root,
+        _tab = tab,
         _order = 0,
         frame = frame,
         weight = opts.Weight or 1,
@@ -567,7 +570,7 @@ end
 
 function Column:Container(title)
     self._order = self._order + 1
-    local container = Container.new(self._root, self.frame, title)
+    local container = Container.new(self._root, self.frame, title, self)
     container.holder.LayoutOrder = self._order
     return container
 end
@@ -1156,7 +1159,7 @@ local M = {}
 local Container = {}
 Container.__index = Container
 
-function M.new(root, parent, title)
+function M.new(root, parent, title, column)
     local theme = root.theme
 
     local holder = Instance.new("Frame")
@@ -1217,6 +1220,8 @@ function M.new(root, parent, title)
         _root = root,
         _box = box,
         _order = 0,
+        _column = column,
+        _title = title or "",
         holder = holder,
     }, Container)
 end
@@ -3507,7 +3512,7 @@ function Tab.new(root, page, name)
 end
 
 function Tab:Column(opts)
-    local column = Column.new(self._root, self.holder, opts)
+    local column = Column.new(self._root, self.holder, opts, self)
     column.frame.LayoutOrder = #self._columns + 1
     table.insert(self._columns, column)
     self:_layout()
@@ -4779,6 +4784,57 @@ function M.new(root, parent, opts, fullWidth)
     end
 
     return api
+end
+
+return M
+end
+
+__modules["core/search"] = function(require)
+-- Global widget search. Pure ranking function first; the Instance side lives
+-- below and never runs under the 5.4 test harness.
+--
+-- Ranking rule (documented in the spec): exact < prefix < word-start < any
+-- substring, ties broken alphabetically. Path is displayed but not searched --
+-- searching paths made every widget on the Aimbot page match "aim", which is
+-- noise. Lua 5.4 / Luau intersection: no compound assignment, no bitwise ops,
+-- no goto.
+
+local M = {}
+
+local function scoreOne(query, label)
+    local lower = string.lower(label)
+    if lower == query then return 0 end
+    local idx = string.find(lower, query, 1, true)  -- plain-text, not pattern
+    if idx == nil then return nil end
+    if idx == 1 then return 1 end
+    local prev = string.sub(lower, idx - 1, idx - 1)
+    if prev == " " or prev == "_" then return 2 end
+    return 3
+end
+
+function M.rank(query, entries)
+    query = string.lower(query)
+    query = query:gsub("^%s+", "")
+    query = query:gsub("%s+$", "")
+    if query == "" then return {} end
+
+    local scored = {}
+    for i = 1, #entries do
+        local e = entries[i]
+        local score = scoreOne(query, e.label)
+        if score ~= nil then
+            table.insert(scored, { entry = e, score = score })
+        end
+    end
+
+    table.sort(scored, function(a, b)
+        if a.score ~= b.score then return a.score < b.score end
+        return a.entry.label < b.entry.label
+    end)
+
+    local out = {}
+    for i = 1, #scored do out[i] = scored[i].entry end
+    return out
 end
 
 return M

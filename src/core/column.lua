@@ -56,7 +56,9 @@ local Container = require("core/container")
 local Column = {}
 Column.__index = Column
 
-function M.new(root, parent, opts)
+-- `tab` is the owning Tab, stored so a row indexed by search can walk back to
+-- its page. Nil in tests; the field is a leaf, nothing reads it there.
+function M.new(root, parent, opts, tab)
     opts = opts or {}
     local theme = root.theme
 
@@ -84,6 +86,7 @@ function M.new(root, parent, opts)
 
     return setmetatable({
         _root = root,
+        _tab = tab,
         _order = 0,
         frame = frame,
         weight = opts.Weight or 1,
@@ -92,7 +95,7 @@ end
 
 function Column:Container(title)
     self._order = self._order + 1
-    local container = Container.new(self._root, self.frame, title)
+    local container = Container.new(self._root, self.frame, title, self)
     container.holder.LayoutOrder = self._order
     return container
 end

@@ -10,7 +10,7 @@ local M = {}
 local Container = {}
 Container.__index = Container
 
-function M.new(root, parent, title)
+function M.new(root, parent, title, column)
     local theme = root.theme
 
     local holder = Instance.new("Frame")
@@ -71,6 +71,8 @@ function M.new(root, parent, title)
         _root = root,
         _box = box,
         _order = 0,
+        _column = column,
+        _title = title or "",
         holder = holder,
     }, Container)
 end
