@@ -358,7 +358,7 @@ function Search:_ensureRows(n)
         path.Parent = row
         theme:bind(path, "TextColor3", "TextDim")
 
-        root:keep(row.MouseEnter:Connect(function()
+        self._root:keep(row.MouseEnter:Connect(function()
             if not self._open then return end
             -- Only sync to results we're actually showing; the footer "+N more"
             -- row has no result behind it.
@@ -368,7 +368,7 @@ function Search:_ensureRows(n)
             end
         end))
 
-        root:keep(row.Activated:Connect(function()
+        self._root:keep(row.Activated:Connect(function()
             if not self._open then return end
             if i <= #self._results then
                 self._selected = i
