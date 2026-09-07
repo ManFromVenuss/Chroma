@@ -227,6 +227,25 @@ function M.new(root, window)
         end
     end))
 
+    -- Click-outside dismissal. Runs on every MouseButton1 press; cheap enough,
+    -- and matches the pattern in popup.lua rather than tracking focus.
+    root:keep(UserInputService.InputBegan:Connect(function(input_, gameProcessed)
+        if input_.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if not self._open then return end
+        local mx, my = root:mouseInGuiSpace()
+        local function inside(instance)
+            local pos = instance.AbsolutePosition
+            local sz = instance.AbsoluteSize
+            return mx >= pos.X and mx < pos.X + sz.X
+                and my >= pos.Y and my < pos.Y + sz.Y
+        end
+        -- Clicks on the title bar (input + icon live there) or the dropdown
+        -- keep the search open; anything else closes it.
+        if inside(window._bar) then return end
+        if drop.Visible and inside(drop) then return end
+        self:close()
+    end))
+
     return self
 end
 

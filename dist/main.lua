@@ -5040,6 +5040,25 @@ function M.new(root, window)
         end
     end))
 
+    -- Click-outside dismissal. Runs on every MouseButton1 press; cheap enough,
+    -- and matches the pattern in popup.lua rather than tracking focus.
+    root:keep(UserInputService.InputBegan:Connect(function(input_, gameProcessed)
+        if input_.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if not self._open then return end
+        local mx, my = root:mouseInGuiSpace()
+        local function inside(instance)
+            local pos = instance.AbsolutePosition
+            local sz = instance.AbsoluteSize
+            return mx >= pos.X and mx < pos.X + sz.X
+                and my >= pos.Y and my < pos.Y + sz.Y
+        end
+        -- Clicks on the title bar (input + icon live there) or the dropdown
+        -- keep the search open; anything else closes it.
+        if inside(window._bar) then return end
+        if drop.Visible and inside(drop) then return end
+        self:close()
+    end))
+
     return self
 end
 
@@ -6990,6 +7009,30 @@ function M.new(root, opts)
             if input.UserInputType == key then self:toggle() end
         elseif input.KeyCode == key then
             self:toggle()
+        end
+    end))
+
+    -- Ctrl-F opens the search while the window is open, or closes it if it's
+    -- already open. Ignored while a Keybind is capturing so it doesn't get
+    -- swallowed as a bind attempt.
+    root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if root.capturing then return end
+        if not self._anim:isOpen() then return end
+        if input.KeyCode ~= Enum.KeyCode.F then return end
+        if not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+            and not UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+            return
+        end
+        if root.search then root.search:toggle() end
+    end))
+
+    -- Escape closes the search when it is open. Kept separate from the Ctrl-F
+    -- handler so the two guards read cleanly.
+    root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.KeyCode ~= Enum.KeyCode.Escape then return end
+        if root.search and root.search._open then
+            root.search:close()
         end
     end))
 

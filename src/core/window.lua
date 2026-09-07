@@ -402,6 +402,30 @@ function M.new(root, opts)
         end
     end))
 
+    -- Ctrl-F opens the search while the window is open, or closes it if it's
+    -- already open. Ignored while a Keybind is capturing so it doesn't get
+    -- swallowed as a bind attempt.
+    root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed then return end
+        if root.capturing then return end
+        if not self._anim:isOpen() then return end
+        if input.KeyCode ~= Enum.KeyCode.F then return end
+        if not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+            and not UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+            return
+        end
+        if root.search then root.search:toggle() end
+    end))
+
+    -- Escape closes the search when it is open. Kept separate from the Ctrl-F
+    -- handler so the two guards read cleanly.
+    root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.KeyCode ~= Enum.KeyCode.Escape then return end
+        if root.search and root.search._open then
+            root.search:close()
+        end
+    end))
+
     -- Only one root:onFrame handler is allowed (Root:onFrame asserts on a
     -- second registration), so all per-frame window work lives here.
     root:onFrame(function(dt)
