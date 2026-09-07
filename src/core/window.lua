@@ -548,6 +548,11 @@ function Window:open()
 end
 
 function Window:close()
+    -- Close the search first so its dropdown doesn't linger over a hidden
+    -- window and reopen populated the next time the menu opens.
+    if self._root.search and self._root.search._open then
+        self._root.search:close()
+    end
     self:_layoutChanged()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false
