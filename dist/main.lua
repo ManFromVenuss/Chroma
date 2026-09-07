@@ -5002,7 +5002,9 @@ function M.new(root, window)
         -- offset relative to the overlay layer's origin.
         drop.Position = UDim2.fromOffset(
             root:toLayerSpace(pos.X, pos.Y + sz.Y, layer))
-        drop.Size = UDim2.new(0, sz.X, 0, 0)   -- height set per-refresh
+        -- Preserve the current height so a mid-tween anchor call (window
+        -- move / resize) doesn't stomp the slide-down animation.
+        drop.Size = UDim2.new(0, sz.X, 0, drop.Size.Y.Offset)
     end
 
     -- Reposition when the window moves or resizes; the window fires
@@ -5229,7 +5231,7 @@ end
 function Search:_refresh()
     local drop = self._drop
     if not self._open then
-        drop.Visible = false
+        self:_hideDrop()
         return
     end
 
@@ -5240,7 +5242,7 @@ function Search:_refresh()
     if query == "" or #self._results == 0 then
         -- No dropdown for empty query or zero matches. A "no results" line
         -- reads as noise on a menu where the widget list is small.
-        drop.Visible = false
+        self:_hideDrop()
         return
     end
 
@@ -5280,16 +5282,44 @@ function Search:_refresh()
     end
 
     self._anchor()
-    -- Clamp the outer frame height to what we want to show (cap * row height
-    -- + footer row when present).
+    -- Tween height from current to target for a slide-down feel. Width stays
+    -- pinned to the bar; only the Y offset animates.
     local visibleRows = shown + (hasMore and 1 or 0)
-    local width = drop.AbsoluteSize.X ~= 0 and drop.AbsoluteSize.X
-        or self._window._bar.AbsoluteSize.X
-    drop.Size = UDim2.new(0, width, 0,
-        math.min(visibleRows, MAX_VISIBLE_ROWS + (hasMore and 1 or 0)) * ROW_HEIGHT)
+    local targetHeight =
+        math.min(visibleRows, MAX_VISIBLE_ROWS + (hasMore and 1 or 0)) * ROW_HEIGHT
 
     drop.Visible = true
+    self:_setDropHeight(targetHeight)
     self:_paintSelection()
+end
+
+-- Tween the drop's height offset to `target`. Cancels any prior height tween
+-- so a fast typist doesn't stack animations.
+function Search:_setDropHeight(target)
+    local drop = self._drop
+    if self._sizeTween then self._sizeTween:Cancel() end
+    self._sizeTween = TweenService:Create(drop,
+        TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { Size = UDim2.new(0, drop.Size.X.Offset, 0, target) })
+    self._sizeTween:Play()
+end
+
+-- Tween the drop down to zero height, then hide it. Guarded so a show that
+-- happens mid-collapse doesn't get its Visible flipped off by our stale tween.
+function Search:_hideDrop()
+    local drop = self._drop
+    if not drop.Visible then return end
+    if self._sizeTween then self._sizeTween:Cancel() end
+    self._sizeTween = TweenService:Create(drop,
+        TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+        { Size = UDim2.new(0, drop.Size.X.Offset, 0, 0) })
+    self._sizeTween:Play()
+    local mine = self._sizeTween
+    mine.Completed:Connect(function()
+        if self._sizeTween == mine then
+            drop.Visible = false
+        end
+    end)
 end
 
 -- Only re-paints the row that gained and the row that lost selection; the
