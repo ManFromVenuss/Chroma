@@ -104,4 +104,18 @@ function Column:setWidth(px)
     self.frame.Size = UDim2.new(0, px, 1, 0)
 end
 
+-- Scrolls the column's ScrollingFrame so `row.frame` sits comfortably in view
+-- (16px below the top edge). No easing: the row is about to be flashed for
+-- confirmation, and a smooth scroll delays the flash by its own duration.
+function Column:scrollTo(row)
+    local frame = self.frame
+    local target = row and row.frame
+    if target == nil then return end
+    local canvas = frame.CanvasPosition
+    local rowY = target.AbsolutePosition.Y - frame.AbsolutePosition.Y + canvas.Y
+    local maxY = math.max(0, frame.AbsoluteCanvasSize.Y - frame.AbsoluteWindowSize.Y)
+    local y = math.clamp(rowY - 16, 0, maxY)
+    frame.CanvasPosition = Vector2.new(canvas.X, y)
+end
+
 return M
