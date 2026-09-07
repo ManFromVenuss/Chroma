@@ -406,7 +406,11 @@ function M.new(root, opts)
     -- already open. Ignored while a Keybind is capturing so it doesn't get
     -- swallowed as a bind attempt.
     root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
+        -- When our own search input is focused it marks every keystroke as
+        -- gameProcessed, including Ctrl-F. Let those through so the shortcut
+        -- can close the search too. Any other focused TextBox (game chat,
+        -- unrelated field) still suppresses.
+        if gameProcessed and not (root.search and root.search._open) then return end
         if root.capturing then return end
         if not self._anim:isOpen() then return end
         if input.KeyCode ~= Enum.KeyCode.F then return end
