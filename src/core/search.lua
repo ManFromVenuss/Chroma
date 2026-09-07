@@ -433,9 +433,10 @@ function Search:_refresh()
         return
     end
 
-    local shown = math.min(#self._results, MAX_VISIBLE_ROWS)
-    local hasMore = #self._results > MAX_VISIBLE_ROWS
-    self:_ensureRows(shown + (hasMore and 1 or 0))
+    -- Every match gets a row; the outer frame's height is capped at
+    -- MAX_VISIBLE_ROWS and the ScrollingFrame handles the rest.
+    local total = #self._results
+    self:_ensureRows(total)
 
     -- Clear leftover selection paint on every row: a prior refresh may have
     -- left a RailActive binding on rows that are about to fall out of the
@@ -450,7 +451,7 @@ function Search:_refresh()
     end
     self._lastSelected = 0
 
-    for i = 1, shown do
+    for i = 1, total do
         local entry = self._results[i]
         local row = self._rows[i]
         row.label.Text = entry.label
@@ -458,22 +459,13 @@ function Search:_refresh()
         row.frame.Visible = true
     end
 
-    -- Footer `+N more` row if the total exceeds the cap. Not clickable, not
-    -- part of _results (so selection can't land on it).
-    if hasMore then
-        local footer = self._rows[shown + 1]
-        footer.label.Text = "+" .. tostring(#self._results - shown) .. " more"
-        footer.path.Text = ""
-        footer.frame.Visible = true
-        footer.frame.AutoButtonColor = false
-    end
-
     self._anchor()
-    -- Tween height from current to target for a slide-down feel. Width stays
-    -- pinned to the bar; only the Y offset animates.
-    local visibleRows = shown + (hasMore and 1 or 0)
-    local targetHeight =
-        math.min(visibleRows, MAX_VISIBLE_ROWS + (hasMore and 1 or 0)) * ROW_HEIGHT
+    -- Reset scroll to the top so the selected row (index 1) is always in view
+    -- after a query change.
+    drop.CanvasPosition = Vector2.new(0, 0)
+
+    local visibleRows = math.min(total, MAX_VISIBLE_ROWS)
+    local targetHeight = visibleRows * ROW_HEIGHT
 
     drop.Visible = true
     self:_setDropHeight(targetHeight)
@@ -530,6 +522,20 @@ function Search:_paintSelection()
         frame.BackgroundTransparency = 0
         theme:unbind(frame)
         theme:bind(frame, "BackgroundColor3", "RailActive")
+
+        -- Keep the selected row inside the visible band as arrows move it
+        -- past the fold. Reads current viewport offset directly rather than
+        -- guessing from _selected -- Roblox exposes it as CanvasPosition.
+        local drop = self._drop
+        local topY = (next_ - 1) * ROW_HEIGHT
+        local bottomY = topY + ROW_HEIGHT
+        local viewportH = drop.AbsoluteWindowSize.Y
+        local canvasY = drop.CanvasPosition.Y
+        if topY < canvasY then
+            drop.CanvasPosition = Vector2.new(0, topY)
+        elseif bottomY > canvasY + viewportH then
+            drop.CanvasPosition = Vector2.new(0, bottomY - viewportH)
+        end
     end
 
     self._lastSelected = next_
