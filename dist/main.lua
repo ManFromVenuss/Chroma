@@ -4985,6 +4985,7 @@ function M.new(root, window)
     self._rows = {}     -- reusable row frames, indexed 1..N
     self._results = {}  -- current filtered entries in display order
     self._selected = 0  -- 1-based index into _results, 0 when no selection
+    self._lastSelected = 0
 
     -- Repositions the dropdown flush under the title bar. Called on layout
     -- change and every open.
@@ -5150,9 +5151,18 @@ function Search:_refresh()
     local hasMore = #self._results > MAX_VISIBLE_ROWS
     self:_ensureRows(shown + (hasMore and 1 or 0))
 
+    -- Clear leftover selection paint on every row: a prior refresh may have
+    -- left a RailActive binding on rows that are about to fall out of the
+    -- results range, and _paintSelection only touches the two rows that
+    -- change now.
+    local theme = self._root.theme
     for i = 1, #self._rows do
-        self._rows[i].frame.Visible = false
+        local frame = self._rows[i].frame
+        frame.Visible = false
+        frame.BackgroundTransparency = 1
+        theme:unbind(frame)
     end
+    self._lastSelected = 0
 
     for i = 1, shown do
         local entry = self._results[i]
@@ -5185,19 +5195,30 @@ function Search:_refresh()
     self:_paintSelection()
 end
 
+-- Only re-paints the row that gained and the row that lost selection; the
+-- rest are already correct from a prior _refresh. Called on every keystroke
+-- and every arrow key, so touching only two rows keeps theme rebinds off the
+-- hot path.
 function Search:_paintSelection()
     local theme = self._root.theme
-    for i = 1, math.min(#self._rows, #self._results) do
-        local row = self._rows[i]
-        if i == self._selected then
-            row.frame.BackgroundTransparency = 0
-            theme:unbind(row.frame)
-            theme:bind(row.frame, "BackgroundColor3", "RailActive")
-        else
-            row.frame.BackgroundTransparency = 1
-            theme:unbind(row.frame)
-        end
+    local prev = self._lastSelected or 0
+    local next_ = self._selected or 0
+
+    if prev == next_ then return end
+
+    if prev > 0 and self._rows[prev] then
+        local frame = self._rows[prev].frame
+        frame.BackgroundTransparency = 1
+        theme:unbind(frame)
     end
+    if next_ > 0 and self._rows[next_] then
+        local frame = self._rows[next_].frame
+        frame.BackgroundTransparency = 0
+        theme:unbind(frame)
+        theme:bind(frame, "BackgroundColor3", "RailActive")
+    end
+
+    self._lastSelected = next_
 end
 
 return M
