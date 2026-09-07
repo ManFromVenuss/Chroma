@@ -4904,7 +4904,7 @@ function M.new(root, window)
     local input = Instance.new("TextBox")
     input.Name = "searchInput"
     input.BackgroundTransparency = 1
-    input.Size = UDim2.new(1, -32, 1, 0)   -- leave 24px on the right for the icon plus 8px gap
+    input.Size = UDim2.new(1, -32, 1, 0)   -- 24px reserved on the right: 8px margin, 12px icon, 4px gap
     input.Position = UDim2.fromOffset(8, 0)
     input.Font = Enum.Font.Ubuntu
     input.TextSize = 12
@@ -4921,15 +4921,15 @@ function M.new(root, window)
     self._input = input
 
     self._open = false
+    self._iconHovered = false
 
     root:keep(searchIcon.MouseEnter:Connect(function()
-        theme:unbind(searchIcon)
-        theme:bind(searchIcon, "ImageColor3", "TextBright")
+        self._iconHovered = true
+        self:_paintIcon()
     end))
     root:keep(searchIcon.MouseLeave:Connect(function()
-        theme:unbind(searchIcon)
-        theme:bind(searchIcon, "ImageColor3",
-            self._open and "TextBright" or "TextDim")
+        self._iconHovered = false
+        self:_paintIcon()
     end))
     root:keep(searchIcon.Activated:Connect(function()
         self:toggle()
@@ -4975,6 +4975,7 @@ function Search:open()
     self._input:CaptureFocus()
     -- Icon swaps to `x` so the same button also closes the search.
     self._icon.Image = Icons.resolveIcon("x", lucideAssets).value
+    self:_paintIcon()
     self:_refresh()   -- populates the dropdown; stub for now
 end
 
@@ -4986,11 +4987,21 @@ function Search:close()
     self._input.Text = ""
     self._window._titleText.Visible = true
     self._icon.Image = Icons.resolveIcon("search", lucideAssets).value
+    self:_paintIcon()
     self:_refresh()
 end
 
 function Search:toggle()
     if self._open then self:close() else self:open() end
+end
+
+-- Icon reads bright when hovered OR when the search is open, dim otherwise.
+-- Centralised so open()/close() and the hover handlers can't fall out of sync.
+function Search:_paintIcon()
+    local theme = self._root.theme
+    theme:unbind(self._icon)
+    local key = (self._open or self._iconHovered) and "TextBright" or "TextDim"
+    theme:bind(self._icon, "ImageColor3", key)
 end
 
 -- Stub; the dropdown is added in the next task. Kept as a no-op so open/close
