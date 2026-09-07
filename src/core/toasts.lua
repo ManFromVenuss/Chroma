@@ -102,6 +102,21 @@ function M.new(root)
         self:show(text, kind)
     end)
 
+    -- Per-frame gradient update for every live toast's outline stroke, so
+    -- the toasts' outlines sweep in lockstep with the menu's own outline.
+    -- Iterating _toasts is cheap -- cap is 5 -- and it's the only place
+    -- toasts exist, so no walk of arbitrary descendants is needed.
+    root:keep(RunService.Heartbeat:Connect(function()
+        if not root:isAlive() then return end
+        if #self._toasts == 0 then return end
+        local a = root.theme:get("HairA")
+        local b = root.theme:get("HairB")
+        local seq = ColorSequence.new(a, b)
+        for i = 1, #self._toasts do
+            self._toasts[i].strokeGradient.Color = seq
+        end
+    end))
+
     return self
 end
 
@@ -148,12 +163,13 @@ function Toasts:show(text, kind, opts)
     local id = self._nextId
     self._nextId = id + 1
 
-    local frame = self:_build(text, defaults.stripe)
+    local frame, strokeGradient = self:_build(text, defaults.stripe)
     frame.Parent = self._layer
 
     local entry = {
         id = id,
         frame = frame,
+        strokeGradient = strokeGradient,
         expireAt = os.clock() + (opts.Duration or defaults.duration),
     }
 
@@ -191,14 +207,22 @@ function Toasts:_build(text, stripeKey)
     frame.Size = UDim2.fromOffset(TOAST_W, TOAST_H)
     frame.BorderSizePixel = 0
     frame.AutoButtonColor = false
-    frame.BackgroundTransparency = 0.15
+    frame.BackgroundTransparency = 0.05
     frame.Image = ""
     theme:bind(frame, "BackgroundColor3", "TitleBar")
 
+    -- 1px HairA -> HairB gradient stroke, updated per frame by
+    -- _updateStrokeGradients. Same look as the window's outline so toasts
+    -- read as part of the menu rather than a stark rectangle.
     local stroke = Instance.new("UIStroke")
     stroke.Thickness = 1
+    stroke.Color = Color3.new(1, 1, 1)
     stroke.Parent = frame
-    theme:bind(stroke, "Color", "FieldBorder")
+
+    local strokeGradient = Instance.new("UIGradient")
+    strokeGradient.Color = ColorSequence.new(
+        theme:get("HairA"), theme:get("HairB"))
+    strokeGradient.Parent = stroke
 
     local stripe = Instance.new("Frame")
     stripe.Name = "stripe"
@@ -221,7 +245,7 @@ function Toasts:_build(text, stripeKey)
     label.Parent = frame
     theme:bind(label, "TextColor3", "Text")
 
-    return frame
+    return frame, strokeGradient
 end
 
 function Toasts:_dismiss(id)

@@ -1538,12 +1538,13 @@ local M = {}
 
 -- Always-mode reads as permanently active regardless of a bind. Any other mode
 -- shows its key label -- which is "NONE" when the bind is unset (from
--- Keybind.formatKey).
+-- Keybind.formatKey). Kept as a pure helper for tests; the on-screen layout
+-- uses two labels (name and bind) so the bind column can stack across rows.
 function M.formatRow(name, mode, keyLabel)
     if mode == "Always" then
-        return "[always] " .. tostring(name)
+        return tostring(name) .. " [always]"
     end
-    return "[" .. tostring(keyLabel) .. "] " .. tostring(name)
+    return tostring(name) .. " [" .. tostring(keyLabel) .. "]"
 end
 
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
@@ -1561,6 +1562,11 @@ Hotkeys.__index = Hotkeys
 local PAD = 12
 local ROW_HEIGHT = 18
 local PANEL_WIDTH = 160
+-- Fixed bind column width so `[MOUSE2]` and `[C]` stack in the same slot on
+-- the right edge. Bind text is right-aligned inside this slot so it hugs the
+-- panel's right edge with no trailing space, while its left position varies
+-- with the bind's own width.
+local BIND_COL = 64
 local FLAG_POS = "chroma_hotkey_pos"
 local FLAG_SHOW = "chroma_hotkey_show"
 
@@ -1590,17 +1596,30 @@ function Hotkeys:_buildPanel()
     panel.BorderSizePixel = 0
     panel.AutoButtonColor = false
     panel.Text = ""
-    panel.BackgroundTransparency = 0.15
+    panel.BackgroundTransparency = 0.05
     panel.Active = false
     panel.AutomaticSize = Enum.AutomaticSize.Y
     panel.Visible = false   -- shown once at least one row exists
     panel.Parent = self._root.overlayLayer
     self._theme:bind(panel, "BackgroundColor3", "TitleBar")
 
+    -- 1px HairA -> HairB gradient stroke, matching the menu's own outline.
+    -- Updated per frame in _wireHeartbeat. White base because UIGradient
+    -- multiplies its element's colour.
     local stroke = Instance.new("UIStroke")
     stroke.Thickness = 1
+    stroke.Color = Color3.new(1, 1, 1)
+    -- Border rather than Contextual: on a TextButton the default Contextual
+    -- mode draws around the text glyphs (which are empty here) instead of the
+    -- element's border, leaving the panel with no visible outline.
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     stroke.Parent = panel
-    self._theme:bind(stroke, "Color", "FieldBorder")
+
+    local strokeGradient = Instance.new("UIGradient")
+    strokeGradient.Color = ColorSequence.new(
+        self._theme:get("HairA"), self._theme:get("HairB"))
+    strokeGradient.Parent = stroke
+    self._strokeGradient = strokeGradient
 
     local pad = Instance.new("UIPadding")
     pad.PaddingTop = UDim.new(0, 4)
@@ -1655,6 +1674,10 @@ end
 
 function Hotkeys:_wireHeartbeat()
     self._root:keep(RunService.Heartbeat:Connect(function()
+        -- Keep the stroke gradient in lockstep with the menu's outline.
+        self._strokeGradient.Color = ColorSequence.new(
+            self._theme:get("HairA"), self._theme:get("HairB"))
+
         local show = self._root.config.Flags[FLAG_SHOW]
         if show == nil then show = true end
         if not show then
@@ -1710,17 +1733,23 @@ function Hotkeys:_rebuild()
             keyLabel = Keybind.formatKey(nil, bind.Name)
         end
 
-        row.label.Text = M.formatRow(widget._label, mode, keyLabel)
-        row.label.Name = widget._label   -- feeds UIListLayout SortOrder.Name
+        local bindText = mode == "Always" and "[always]" or ("[" .. tostring(keyLabel) .. "]")
+        row.bind.Text = bindText
+        row.name.Text = widget._label
+        row.frame.Name = widget._label   -- feeds UIListLayout SortOrder.Name
 
         local held = widget:IsHeld()
-        self._theme:unbind(row.label)
-        self._theme:bind(row.label, "TextColor3", held and "TextBright" or "TextDim")
+        local colourKey = held and "TextBright" or "TextDim"
+        self._theme:unbind(row.bind)
+        self._theme:unbind(row.name)
+        self._theme:bind(row.bind, "TextColor3", colourKey)
+        self._theme:bind(row.name, "TextColor3", colourKey)
     end
 
     for widget, row in pairs(self._rows) do
         if not seen[widget] then
-            self._theme:unbind(row.label)
+            self._theme:unbind(row.bind)
+            self._theme:unbind(row.name)
             row.frame:Destroy()
             self._rows[widget] = nil
         end
@@ -1737,17 +1766,33 @@ function Hotkeys:_buildRow(widget)
     frame.BorderSizePixel = 0
     frame.Parent = self._panel
 
-    local label = Instance.new("TextLabel")
-    label.Name = "text"
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.Ubuntu
-    label.TextSize = 12
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Text = ""
-    label.Parent = frame
+    local name = Instance.new("TextLabel")
+    name.Name = "name"
+    name.Size = UDim2.new(1, -BIND_COL, 1, 0)
+    name.BackgroundTransparency = 1
+    name.Font = Enum.Font.Ubuntu
+    name.TextSize = 12
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.Text = ""
+    name.Parent = frame
 
-    return { frame = frame, label = label }
+    -- Bind cell pinned to the right edge, text right-aligned inside it. That
+    -- keeps `[MOUSE2]` and `[C]` flush against the panel's right edge with no
+    -- trailing gap, while both still end at the same X across rows.
+    local bind = Instance.new("TextLabel")
+    bind.Name = "bind"
+    bind.AnchorPoint = Vector2.new(1, 0)
+    bind.Position = UDim2.new(1, 0, 0, 0)
+    bind.Size = UDim2.new(0, BIND_COL, 1, 0)
+    bind.BackgroundTransparency = 1
+    bind.Font = Enum.Font.Ubuntu
+    bind.TextSize = 12
+    bind.TextXAlignment = Enum.TextXAlignment.Right
+    bind.TextTruncate = Enum.TextTruncate.AtEnd
+    bind.Text = ""
+    bind.Parent = frame
+
+    return { frame = frame, bind = bind, name = name }
 end
 
 function Hotkeys:_applyPositionFromFlag()
@@ -5356,6 +5401,21 @@ function M.new(root)
         self:show(text, kind)
     end)
 
+    -- Per-frame gradient update for every live toast's outline stroke, so
+    -- the toasts' outlines sweep in lockstep with the menu's own outline.
+    -- Iterating _toasts is cheap -- cap is 5 -- and it's the only place
+    -- toasts exist, so no walk of arbitrary descendants is needed.
+    root:keep(RunService.Heartbeat:Connect(function()
+        if not root:isAlive() then return end
+        if #self._toasts == 0 then return end
+        local a = root.theme:get("HairA")
+        local b = root.theme:get("HairB")
+        local seq = ColorSequence.new(a, b)
+        for i = 1, #self._toasts do
+            self._toasts[i].strokeGradient.Color = seq
+        end
+    end))
+
     return self
 end
 
@@ -5402,12 +5462,13 @@ function Toasts:show(text, kind, opts)
     local id = self._nextId
     self._nextId = id + 1
 
-    local frame = self:_build(text, defaults.stripe)
+    local frame, strokeGradient = self:_build(text, defaults.stripe)
     frame.Parent = self._layer
 
     local entry = {
         id = id,
         frame = frame,
+        strokeGradient = strokeGradient,
         expireAt = os.clock() + (opts.Duration or defaults.duration),
     }
 
@@ -5445,14 +5506,22 @@ function Toasts:_build(text, stripeKey)
     frame.Size = UDim2.fromOffset(TOAST_W, TOAST_H)
     frame.BorderSizePixel = 0
     frame.AutoButtonColor = false
-    frame.BackgroundTransparency = 0.15
+    frame.BackgroundTransparency = 0.05
     frame.Image = ""
     theme:bind(frame, "BackgroundColor3", "TitleBar")
 
+    -- 1px HairA -> HairB gradient stroke, updated per frame by
+    -- _updateStrokeGradients. Same look as the window's outline so toasts
+    -- read as part of the menu rather than a stark rectangle.
     local stroke = Instance.new("UIStroke")
     stroke.Thickness = 1
+    stroke.Color = Color3.new(1, 1, 1)
     stroke.Parent = frame
-    theme:bind(stroke, "Color", "FieldBorder")
+
+    local strokeGradient = Instance.new("UIGradient")
+    strokeGradient.Color = ColorSequence.new(
+        theme:get("HairA"), theme:get("HairB"))
+    strokeGradient.Parent = stroke
 
     local stripe = Instance.new("Frame")
     stripe.Name = "stripe"
@@ -5475,7 +5544,7 @@ function Toasts:_build(text, stripeKey)
     label.Parent = frame
     theme:bind(label, "TextColor3", "Text")
 
-    return frame
+    return frame, strokeGradient
 end
 
 function Toasts:_dismiss(id)
@@ -5813,13 +5882,20 @@ end
 function Watermark:_buildPill()
     local pill = Instance.new("TextButton")
     pill.Name = "watermark"
-    pill.Size = UDim2.fromOffset(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+    -- AutomaticSize.X so the pill grows to fit whatever text the refresh
+    -- callback produces -- a fixed width clipped "CHROMA | NN FPS | NNN ms"
+    -- at the default script name, and any longer consumer name was worse.
+    pill.Size = UDim2.fromOffset(0, DEFAULT_HEIGHT)
+    pill.AutomaticSize = Enum.AutomaticSize.X
     pill.BorderSizePixel = 0
     pill.AutoButtonColor = false
     pill.Font = Enum.Font.Ubuntu
     pill.TextSize = 12
     pill.Text = self._name
-    pill.BackgroundTransparency = 0.15
+    -- Slightly less transparent than the title bar: the title bar has the
+    -- game world behind, but the watermark can land over bright HUD text
+    -- (AR2's "0 days survived") where more contrast helps.
+    pill.BackgroundTransparency = 0.05
     -- Passes clicks through while the menu is closed. Flipped in the drag
     -- setup based on window:isOpen().
     pill.Active = false
@@ -5827,10 +5903,41 @@ function Watermark:_buildPill()
     self._theme:bind(pill, "BackgroundColor3", "TitleBar")
     self._theme:bind(pill, "TextColor3", "Text")
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 1
-    stroke.Parent = pill
-    self._theme:bind(stroke, "Color", "FieldBorder")
+    -- Same top/bottom hairlines as the window's title bar, so the pill reads
+    -- as a floating strip rather than a bordered rectangle. No side stroke:
+    -- the ends are defined by the pill's translucent background alone. White
+    -- base colour because a UIGradient multiplies its element's colour and a
+    -- Frame's default grey would render the gradient at ~64% intensity.
+    -- Extend by the UIPadding on each side (16 total) and offset back by 8:
+    -- children with Size (1,0,...) fill the pill's *padded* interior, not its
+    -- full width, so a plain 1,0 hairline stops 8px shy of each end.
+    local hairTop = Instance.new("Frame")
+    hairTop.Name = "hairTop"
+    hairTop.Size = UDim2.new(1, 16, 0, 2)
+    hairTop.Position = UDim2.fromOffset(-8, 0)
+    hairTop.BackgroundColor3 = Color3.new(1, 1, 1)
+    hairTop.BorderSizePixel = 0
+    hairTop.Parent = pill
+
+    local hairTopGradient = Instance.new("UIGradient")
+    hairTopGradient.Color = ColorSequence.new(
+        self._theme:get("HairA"), self._theme:get("HairB"))
+    hairTopGradient.Parent = hairTop
+    self._hairTopGradient = hairTopGradient
+
+    local hairBottom = Instance.new("Frame")
+    hairBottom.Name = "hairBottom"
+    hairBottom.Size = UDim2.new(1, 16, 0, 2)
+    hairBottom.Position = UDim2.new(0, -8, 1, -2)
+    hairBottom.BackgroundColor3 = Color3.new(1, 1, 1)
+    hairBottom.BorderSizePixel = 0
+    hairBottom.Parent = pill
+
+    local hairBottomGradient = Instance.new("UIGradient")
+    hairBottomGradient.Color = ColorSequence.new(
+        self._theme:get("HairA"), self._theme:get("HairB"))
+    hairBottomGradient.Parent = hairBottom
+    self._hairBottomGradient = hairBottomGradient
 
     local pad = Instance.new("UIPadding")
     pad.PaddingLeft = UDim.new(0, 8)
@@ -5887,6 +5994,14 @@ function Watermark:_wireHeartbeat()
         local fps = 1 / math.max(dt, 1e-6)
         self._fpsBuffer[self._fpsIndex] = fps
         self._fpsIndex = self._fpsIndex % 30 + 1
+
+        -- Every frame: keep both hairline gradients in step with the menu's
+        -- outline. Reading HairA/HairB and rebuilding ColorSequence is cheap
+        -- and matches what window.lua does for its own five gradients.
+        local seq = ColorSequence.new(
+            self._theme:get("HairA"), self._theme:get("HairB"))
+        self._hairTopGradient.Color = seq
+        self._hairBottomGradient.Color = seq
 
         self._accum = self._accum + dt
         if self._accum < REFRESH_INTERVAL then return end

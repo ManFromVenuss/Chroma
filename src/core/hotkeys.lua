@@ -7,12 +7,13 @@ local M = {}
 
 -- Always-mode reads as permanently active regardless of a bind. Any other mode
 -- shows its key label -- which is "NONE" when the bind is unset (from
--- Keybind.formatKey).
+-- Keybind.formatKey). Kept as a pure helper for tests; the on-screen layout
+-- uses two labels (name and bind) so the bind column can stack across rows.
 function M.formatRow(name, mode, keyLabel)
     if mode == "Always" then
-        return "[always] " .. tostring(name)
+        return tostring(name) .. " [always]"
     end
-    return "[" .. tostring(keyLabel) .. "] " .. tostring(name)
+    return tostring(name) .. " [" .. tostring(keyLabel) .. "]"
 end
 
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
@@ -30,6 +31,11 @@ Hotkeys.__index = Hotkeys
 local PAD = 12
 local ROW_HEIGHT = 18
 local PANEL_WIDTH = 160
+-- Fixed bind column width so `[MOUSE2]` and `[C]` stack in the same slot on
+-- the right edge. Bind text is right-aligned inside this slot so it hugs the
+-- panel's right edge with no trailing space, while its left position varies
+-- with the bind's own width.
+local BIND_COL = 64
 local FLAG_POS = "chroma_hotkey_pos"
 local FLAG_SHOW = "chroma_hotkey_show"
 
@@ -59,17 +65,30 @@ function Hotkeys:_buildPanel()
     panel.BorderSizePixel = 0
     panel.AutoButtonColor = false
     panel.Text = ""
-    panel.BackgroundTransparency = 0.15
+    panel.BackgroundTransparency = 0.05
     panel.Active = false
     panel.AutomaticSize = Enum.AutomaticSize.Y
     panel.Visible = false   -- shown once at least one row exists
     panel.Parent = self._root.overlayLayer
     self._theme:bind(panel, "BackgroundColor3", "TitleBar")
 
+    -- 1px HairA -> HairB gradient stroke, matching the menu's own outline.
+    -- Updated per frame in _wireHeartbeat. White base because UIGradient
+    -- multiplies its element's colour.
     local stroke = Instance.new("UIStroke")
     stroke.Thickness = 1
+    stroke.Color = Color3.new(1, 1, 1)
+    -- Border rather than Contextual: on a TextButton the default Contextual
+    -- mode draws around the text glyphs (which are empty here) instead of the
+    -- element's border, leaving the panel with no visible outline.
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     stroke.Parent = panel
-    self._theme:bind(stroke, "Color", "FieldBorder")
+
+    local strokeGradient = Instance.new("UIGradient")
+    strokeGradient.Color = ColorSequence.new(
+        self._theme:get("HairA"), self._theme:get("HairB"))
+    strokeGradient.Parent = stroke
+    self._strokeGradient = strokeGradient
 
     local pad = Instance.new("UIPadding")
     pad.PaddingTop = UDim.new(0, 4)
@@ -124,6 +143,10 @@ end
 
 function Hotkeys:_wireHeartbeat()
     self._root:keep(RunService.Heartbeat:Connect(function()
+        -- Keep the stroke gradient in lockstep with the menu's outline.
+        self._strokeGradient.Color = ColorSequence.new(
+            self._theme:get("HairA"), self._theme:get("HairB"))
+
         local show = self._root.config.Flags[FLAG_SHOW]
         if show == nil then show = true end
         if not show then
@@ -179,17 +202,23 @@ function Hotkeys:_rebuild()
             keyLabel = Keybind.formatKey(nil, bind.Name)
         end
 
-        row.label.Text = M.formatRow(widget._label, mode, keyLabel)
-        row.label.Name = widget._label   -- feeds UIListLayout SortOrder.Name
+        local bindText = mode == "Always" and "[always]" or ("[" .. tostring(keyLabel) .. "]")
+        row.bind.Text = bindText
+        row.name.Text = widget._label
+        row.frame.Name = widget._label   -- feeds UIListLayout SortOrder.Name
 
         local held = widget:IsHeld()
-        self._theme:unbind(row.label)
-        self._theme:bind(row.label, "TextColor3", held and "TextBright" or "TextDim")
+        local colourKey = held and "TextBright" or "TextDim"
+        self._theme:unbind(row.bind)
+        self._theme:unbind(row.name)
+        self._theme:bind(row.bind, "TextColor3", colourKey)
+        self._theme:bind(row.name, "TextColor3", colourKey)
     end
 
     for widget, row in pairs(self._rows) do
         if not seen[widget] then
-            self._theme:unbind(row.label)
+            self._theme:unbind(row.bind)
+            self._theme:unbind(row.name)
             row.frame:Destroy()
             self._rows[widget] = nil
         end
@@ -206,17 +235,33 @@ function Hotkeys:_buildRow(widget)
     frame.BorderSizePixel = 0
     frame.Parent = self._panel
 
-    local label = Instance.new("TextLabel")
-    label.Name = "text"
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.Ubuntu
-    label.TextSize = 12
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Text = ""
-    label.Parent = frame
+    local name = Instance.new("TextLabel")
+    name.Name = "name"
+    name.Size = UDim2.new(1, -BIND_COL, 1, 0)
+    name.BackgroundTransparency = 1
+    name.Font = Enum.Font.Ubuntu
+    name.TextSize = 12
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.Text = ""
+    name.Parent = frame
 
-    return { frame = frame, label = label }
+    -- Bind cell pinned to the right edge, text right-aligned inside it. That
+    -- keeps `[MOUSE2]` and `[C]` flush against the panel's right edge with no
+    -- trailing gap, while both still end at the same X across rows.
+    local bind = Instance.new("TextLabel")
+    bind.Name = "bind"
+    bind.AnchorPoint = Vector2.new(1, 0)
+    bind.Position = UDim2.new(1, 0, 0, 0)
+    bind.Size = UDim2.new(0, BIND_COL, 1, 0)
+    bind.BackgroundTransparency = 1
+    bind.Font = Enum.Font.Ubuntu
+    bind.TextSize = 12
+    bind.TextXAlignment = Enum.TextXAlignment.Right
+    bind.TextTruncate = Enum.TextTruncate.AtEnd
+    bind.Text = ""
+    bind.Parent = frame
+
+    return { frame = frame, bind = bind, name = name }
 end
 
 function Hotkeys:_applyPositionFromFlag()

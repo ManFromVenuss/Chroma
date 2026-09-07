@@ -90,13 +90,20 @@ end
 function Watermark:_buildPill()
     local pill = Instance.new("TextButton")
     pill.Name = "watermark"
-    pill.Size = UDim2.fromOffset(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+    -- AutomaticSize.X so the pill grows to fit whatever text the refresh
+    -- callback produces -- a fixed width clipped "CHROMA | NN FPS | NNN ms"
+    -- at the default script name, and any longer consumer name was worse.
+    pill.Size = UDim2.fromOffset(0, DEFAULT_HEIGHT)
+    pill.AutomaticSize = Enum.AutomaticSize.X
     pill.BorderSizePixel = 0
     pill.AutoButtonColor = false
     pill.Font = Enum.Font.Ubuntu
     pill.TextSize = 12
     pill.Text = self._name
-    pill.BackgroundTransparency = 0.15
+    -- Slightly less transparent than the title bar: the title bar has the
+    -- game world behind, but the watermark can land over bright HUD text
+    -- (AR2's "0 days survived") where more contrast helps.
+    pill.BackgroundTransparency = 0.05
     -- Passes clicks through while the menu is closed. Flipped in the drag
     -- setup based on window:isOpen().
     pill.Active = false
@@ -104,10 +111,41 @@ function Watermark:_buildPill()
     self._theme:bind(pill, "BackgroundColor3", "TitleBar")
     self._theme:bind(pill, "TextColor3", "Text")
 
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = 1
-    stroke.Parent = pill
-    self._theme:bind(stroke, "Color", "FieldBorder")
+    -- Same top/bottom hairlines as the window's title bar, so the pill reads
+    -- as a floating strip rather than a bordered rectangle. No side stroke:
+    -- the ends are defined by the pill's translucent background alone. White
+    -- base colour because a UIGradient multiplies its element's colour and a
+    -- Frame's default grey would render the gradient at ~64% intensity.
+    -- Extend by the UIPadding on each side (16 total) and offset back by 8:
+    -- children with Size (1,0,...) fill the pill's *padded* interior, not its
+    -- full width, so a plain 1,0 hairline stops 8px shy of each end.
+    local hairTop = Instance.new("Frame")
+    hairTop.Name = "hairTop"
+    hairTop.Size = UDim2.new(1, 16, 0, 2)
+    hairTop.Position = UDim2.fromOffset(-8, 0)
+    hairTop.BackgroundColor3 = Color3.new(1, 1, 1)
+    hairTop.BorderSizePixel = 0
+    hairTop.Parent = pill
+
+    local hairTopGradient = Instance.new("UIGradient")
+    hairTopGradient.Color = ColorSequence.new(
+        self._theme:get("HairA"), self._theme:get("HairB"))
+    hairTopGradient.Parent = hairTop
+    self._hairTopGradient = hairTopGradient
+
+    local hairBottom = Instance.new("Frame")
+    hairBottom.Name = "hairBottom"
+    hairBottom.Size = UDim2.new(1, 16, 0, 2)
+    hairBottom.Position = UDim2.new(0, -8, 1, -2)
+    hairBottom.BackgroundColor3 = Color3.new(1, 1, 1)
+    hairBottom.BorderSizePixel = 0
+    hairBottom.Parent = pill
+
+    local hairBottomGradient = Instance.new("UIGradient")
+    hairBottomGradient.Color = ColorSequence.new(
+        self._theme:get("HairA"), self._theme:get("HairB"))
+    hairBottomGradient.Parent = hairBottom
+    self._hairBottomGradient = hairBottomGradient
 
     local pad = Instance.new("UIPadding")
     pad.PaddingLeft = UDim.new(0, 8)
@@ -164,6 +202,14 @@ function Watermark:_wireHeartbeat()
         local fps = 1 / math.max(dt, 1e-6)
         self._fpsBuffer[self._fpsIndex] = fps
         self._fpsIndex = self._fpsIndex % 30 + 1
+
+        -- Every frame: keep both hairline gradients in step with the menu's
+        -- outline. Reading HairA/HairB and rebuilding ColorSequence is cheap
+        -- and matches what window.lua does for its own five gradients.
+        local seq = ColorSequence.new(
+            self._theme:get("HairA"), self._theme:get("HairB"))
+        self._hairTopGradient.Color = seq
+        self._hairBottomGradient.Color = seq
 
         self._accum = self._accum + dt
         if self._accum < REFRESH_INTERVAL then return end
