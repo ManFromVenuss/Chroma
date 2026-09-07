@@ -19,6 +19,7 @@ local files = {
     "tests.test_config",
     "tests.test_icons",
     "tests.test_rail",
+    "tests.test_search",
     "tests.test_toasts",
     "tests.test_watermark",
     "tests.test_hotkeys",

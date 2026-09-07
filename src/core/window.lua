@@ -12,6 +12,7 @@ local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Rail = require("core/rail")
+local Search = require("core/search")
 local Settings = require("core/settings")
 local Toasts = require("core/toasts")
 local Tooltip = require("core/tooltip")
@@ -136,6 +137,7 @@ function M.new(root, opts)
     titleText.ZIndex = 21
     titleText.Parent = bar
     theme:bind(titleText, "TextColor3", "TextBright")
+    self._titleText = titleText
 
     --== contents: everything that slides in from the left ==--
     local contents = Instance.new("Frame")
@@ -400,6 +402,34 @@ function M.new(root, opts)
         end
     end))
 
+    -- Ctrl-F opens the search while the window is open, or closes it if it's
+    -- already open. Ignored while a Keybind is capturing so it doesn't get
+    -- swallowed as a bind attempt.
+    root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        -- When our own search input is focused it marks every keystroke as
+        -- gameProcessed, including Ctrl-F. Let those through so the shortcut
+        -- can close the search too. Any other focused TextBox (game chat,
+        -- unrelated field) still suppresses.
+        if gameProcessed and not (root.search and root.search._open) then return end
+        if root.capturing then return end
+        if not self._anim:isOpen() then return end
+        if input.KeyCode ~= Enum.KeyCode.F then return end
+        if not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+            and not UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then
+            return
+        end
+        if root.search then root.search:toggle() end
+    end))
+
+    -- Escape closes the search when it is open. Kept separate from the Ctrl-F
+    -- handler so the two guards read cleanly.
+    root:keep(UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if input.KeyCode ~= Enum.KeyCode.Escape then return end
+        if root.search and root.search._open then
+            root.search:close()
+        end
+    end))
+
     -- Only one root:onFrame handler is allowed (Root:onFrame asserts on a
     -- second registration), so all per-frame window work lives here.
     root:onFrame(function(dt)
@@ -412,6 +442,10 @@ function M.new(root, opts)
         self._gripBottomGradient.Color = hairColor
         self._gripRightGradient.Color = hairColor
     end)
+
+    -- Search is constructed before Settings is built so the Settings page's
+    -- own widgets get indexed on registration like any consumer's would.
+    root.search = Search.new(root, self)
 
     -- Built before any consumer page exists; fine, because a pinned page
     -- never auto-activates. Opting out is one flag rather than a separate
@@ -518,6 +552,11 @@ function Window:open()
 end
 
 function Window:close()
+    -- Close the search first so its dropdown doesn't linger over a hidden
+    -- window and reopen populated the next time the menu opens.
+    if self._root.search and self._root.search._open then
+        self._root.search:close()
+    end
     self:_layoutChanged()
     self._anim:close(self._animate)
     UserInputService.ModalEnabled = false

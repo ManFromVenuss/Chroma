@@ -10,7 +10,7 @@ local M = {}
 local Container = {}
 Container.__index = Container
 
-function M.new(root, parent, title)
+function M.new(root, parent, title, column)
     local theme = root.theme
 
     local holder = Instance.new("Frame")
@@ -71,6 +71,8 @@ function M.new(root, parent, title)
         _root = root,
         _box = box,
         _order = 0,
+        _column = column,
+        _title = title or "",
         holder = holder,
     }, Container)
 end
@@ -123,6 +125,13 @@ for name, widget in pairs(widgets) do
             error(string.format(
                 "chroma: %s '%s' cannot use Hotkey; only Keybind can",
                 name, tostring(opts.Name)), 2)
+        end
+
+        -- Every registered widget is indexed for search. `_label` on the widget
+        -- is set by Row for widgets that show a label; stateless widgets like
+        -- Button expose a Text label the search hook reads directly.
+        if self._root.search then
+            self._root.search:add(built, row, self)
         end
 
         return built

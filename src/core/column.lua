@@ -56,7 +56,9 @@ local Container = require("core/container")
 local Column = {}
 Column.__index = Column
 
-function M.new(root, parent, opts)
+-- `tab` is the owning Tab, stored so a row indexed by search can walk back to
+-- its page. Nil in tests; the field is a leaf, nothing reads it there.
+function M.new(root, parent, opts, tab)
     opts = opts or {}
     local theme = root.theme
 
@@ -84,6 +86,7 @@ function M.new(root, parent, opts)
 
     return setmetatable({
         _root = root,
+        _tab = tab,
         _order = 0,
         frame = frame,
         weight = opts.Weight or 1,
@@ -92,13 +95,27 @@ end
 
 function Column:Container(title)
     self._order = self._order + 1
-    local container = Container.new(self._root, self.frame, title)
+    local container = Container.new(self._root, self.frame, title, self)
     container.holder.LayoutOrder = self._order
     return container
 end
 
 function Column:setWidth(px)
     self.frame.Size = UDim2.new(0, px, 1, 0)
+end
+
+-- Scrolls the column's ScrollingFrame so `row.frame` sits comfortably in view
+-- (16px below the top edge). No easing: the row is about to be flashed for
+-- confirmation, and a smooth scroll delays the flash by its own duration.
+function Column:scrollTo(row)
+    local frame = self.frame
+    local target = row and row.frame
+    if target == nil then return end
+    local canvas = frame.CanvasPosition
+    local rowY = target.AbsolutePosition.Y - frame.AbsolutePosition.Y + canvas.Y
+    local maxY = math.max(0, frame.AbsoluteCanvasSize.Y - frame.AbsoluteWindowSize.Y)
+    local y = math.clamp(rowY - 16, 0, maxY)
+    frame.CanvasPosition = Vector2.new(canvas.X, y)
 end
 
 return M

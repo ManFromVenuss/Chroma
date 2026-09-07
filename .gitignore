@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# design specs and implementation plans -- kept local, they are working notes
+docs/superpowers/

@@ -61,7 +61,7 @@ function Tab.new(root, page, name)
 end
 
 function Tab:Column(opts)
-    local column = Column.new(self._root, self.holder, opts)
+    local column = Column.new(self._root, self.holder, opts, self)
     column.frame.LayoutOrder = #self._columns + 1
     table.insert(self._columns, column)
     self:_layout()
