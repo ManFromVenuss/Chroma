@@ -52,8 +52,11 @@ end
 
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
+local TweenService   -- lazy: `game` is nil under the 5.4 test harness
+
 local ROW_HEIGHT = 19
 local MAX_VISIBLE_ROWS = 8
+local FLASH_DURATION = 0.8
 
 local Search = {}
 Search.__index = Search
@@ -61,6 +64,7 @@ Search.__index = Search
 function M.new(root, window)
     Icons = Icons or require("core/icons")
     lucideAssets = lucideAssets or require("core/lucide_assets")
+    TweenService = TweenService or game:GetService("TweenService")
 
     local self = setmetatable({
         _root = root,
@@ -357,9 +361,36 @@ function Search:_ensureRows(n)
     end
 end
 
--- Stub; Task 8 replaces this with a full page/tab switch + scroll + flash.
--- Kept as no-op so clicks and Enter don't crash on a nil method call.
+-- Switch to the page and tab that host the entry, scroll the row into view,
+-- flash it briefly with the accent colour, then close the search.
 function Search:_activate(entry)
+    if entry == nil then return end
+    local window = self._window
+
+    if window:getActivePage() ~= entry.page then
+        window:setActivePage(entry.page)
+    end
+    if entry.page._activeTab ~= entry.tab then
+        entry.page:setActiveTab(entry.tab)
+    end
+
+    entry.column:scrollTo(entry.row)
+    self:_flash(entry.row)
+    self:close()
+end
+
+-- Tween a row from Accent-tinted to fully transparent over FLASH_DURATION.
+-- The row's background is normally transparent, so setting it directly is
+-- fine -- no other code writes to row.frame.BackgroundColor3.
+function Search:_flash(row)
+    local frame = row and row.frame
+    if frame == nil then return end
+    frame.BackgroundColor3 = self._root.theme:get("Accent")
+    frame.BackgroundTransparency = 0.4
+    local tween = TweenService:Create(frame,
+        TweenInfo.new(FLASH_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        { BackgroundTransparency = 1 })
+    tween:Play()
 end
 
 -- Rebuild the dropdown from the current input. Empty query hides the drop.
