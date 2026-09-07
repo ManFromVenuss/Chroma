@@ -1290,6 +1290,13 @@ for name, widget in pairs(widgets) do
                 name, tostring(opts.Name)), 2)
         end
 
+        -- Every registered widget is indexed for search. `_label` on the widget
+        -- is set by Row for widgets that show a label; stateless widgets like
+        -- Button expose a Text label the search hook reads directly.
+        if self._root.search then
+            self._root.search:add(built, row, self)
+        end
+
         return built
     end
 end
@@ -4851,6 +4858,48 @@ function M.rank(query, entries)
     return out
 end
 
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local Search = {}
+Search.__index = Search
+
+function M.new(root, window)
+    local self = setmetatable({
+        _root = root,
+        _window = window,
+        _entries = {},   -- flat list of {label, path, page, tab, column, row, widget}
+    }, Search)
+    return self
+end
+
+-- Called from Container as each widget is registered. Path is derived here so
+-- Container does not need to know it exists.
+function Search:add(widget, row, container)
+    local column = container._column
+    if column == nil then return end
+    local tab = column._tab
+    if tab == nil then return end
+    local page = tab._page
+    if page == nil then return end
+
+    local label = widget._label
+    if type(label) ~= "string" or label == "" then return end
+
+    local pathBits = { page.name }
+    if container._title ~= "" then table.insert(pathBits, container._title) end
+    local path = table.concat(pathBits, " > ")
+
+    table.insert(self._entries, {
+        label = label,
+        path = path,
+        page = page,
+        tab = tab,
+        column = column,
+        row = row,
+        widget = widget,
+    })
+end
+
 return M
 end
 
@@ -6155,6 +6204,7 @@ local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Rail = require("core/rail")
+local Search = require("core/search")
 local Settings = require("core/settings")
 local Toasts = require("core/toasts")
 local Tooltip = require("core/tooltip")
@@ -6555,6 +6605,10 @@ function M.new(root, opts)
         self._gripBottomGradient.Color = hairColor
         self._gripRightGradient.Color = hairColor
     end)
+
+    -- Search is constructed before Settings is built so the Settings page's
+    -- own widgets get indexed on registration like any consumer's would.
+    root.search = Search.new(root, self)
 
     -- Built before any consumer page exists; fine, because a pinned page
     -- never auto-activates. Opting out is one flag rather than a separate

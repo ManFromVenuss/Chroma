@@ -12,6 +12,7 @@ local Page = require("core/page")
 local Palette = require("core/palette")
 local Popup = require("core/popup")
 local Rail = require("core/rail")
+local Search = require("core/search")
 local Settings = require("core/settings")
 local Toasts = require("core/toasts")
 local Tooltip = require("core/tooltip")
@@ -412,6 +413,10 @@ function M.new(root, opts)
         self._gripBottomGradient.Color = hairColor
         self._gripRightGradient.Color = hairColor
     end)
+
+    -- Search is constructed before Settings is built so the Settings page's
+    -- own widgets get indexed on registration like any consumer's would.
+    root.search = Search.new(root, self)
 
     -- Built before any consumer page exists; fine, because a pinned page
     -- never auto-activates. Opting out is one flag rather than a separate

@@ -45,4 +45,46 @@ function M.rank(query, entries)
     return out
 end
 
+--== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
+
+local Search = {}
+Search.__index = Search
+
+function M.new(root, window)
+    local self = setmetatable({
+        _root = root,
+        _window = window,
+        _entries = {},   -- flat list of {label, path, page, tab, column, row, widget}
+    }, Search)
+    return self
+end
+
+-- Called from Container as each widget is registered. Path is derived here so
+-- Container does not need to know it exists.
+function Search:add(widget, row, container)
+    local column = container._column
+    if column == nil then return end
+    local tab = column._tab
+    if tab == nil then return end
+    local page = tab._page
+    if page == nil then return end
+
+    local label = widget._label
+    if type(label) ~= "string" or label == "" then return end
+
+    local pathBits = { page.name }
+    if container._title ~= "" then table.insert(pathBits, container._title) end
+    local path = table.concat(pathBits, " > ")
+
+    table.insert(self._entries, {
+        label = label,
+        path = path,
+        page = page,
+        tab = tab,
+        column = column,
+        row = row,
+        widget = widget,
+    })
+end
+
 return M

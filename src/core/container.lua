@@ -127,6 +127,13 @@ for name, widget in pairs(widgets) do
                 name, tostring(opts.Name)), 2)
         end
 
+        -- Every registered widget is indexed for search. `_label` on the widget
+        -- is set by Row for widgets that show a label; stateless widgets like
+        -- Button expose a Text label the search hook reads directly.
+        if self._root.search then
+            self._root.search:add(built, row, self)
+        end
+
         return built
     end
 end
