@@ -4865,6 +4865,9 @@ end
 
 --== Instance side. Never runs under Lua 5.4; Luau syntax is fine here. ==--
 
+local ROW_HEIGHT = 19
+local MAX_VISIBLE_ROWS = 8
+
 local Search = {}
 Search.__index = Search
 
@@ -4933,6 +4936,79 @@ function M.new(root, window)
     end))
     root:keep(searchIcon.Activated:Connect(function()
         self:toggle()
+    end))
+
+    -- Dropdown lives on the overlay layer so it renders above the window's
+    -- own body without being clipped by the window frame.
+    local drop = Instance.new("ScrollingFrame")
+    drop.Name = "searchDropdown"
+    drop.BackgroundTransparency = 0
+    drop.BorderSizePixel = 0
+    drop.ScrollBarThickness = 2
+    drop.ScrollingDirection = Enum.ScrollingDirection.Y
+    drop.ElasticBehavior = Enum.ElasticBehavior.Never
+    drop.CanvasSize = UDim2.new()
+    drop.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    drop.Visible = false
+    drop.ZIndex = 40
+    drop.Parent = root.overlayLayer
+    root:keep(drop)
+    theme:bind(drop, "BackgroundColor3", "Body")
+    theme:bind(drop, "ScrollBarImageColor3", "Accent")
+    self._drop = drop
+
+    local dropStroke = Instance.new("UIStroke")
+    dropStroke.Thickness = 1
+    dropStroke.Color = Color3.new(1, 1, 1)
+    dropStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    dropStroke.Parent = drop
+
+    local dropStrokeGradient = Instance.new("UIGradient")
+    dropStrokeGradient.Color = ColorSequence.new(
+        theme:get("HairA"), theme:get("HairB"))
+    dropStrokeGradient.Parent = dropStroke
+    self._dropStrokeGradient = dropStrokeGradient
+
+    local RunService = game:GetService("RunService")
+    root:keep(RunService.Heartbeat:Connect(function()
+        if not root:isAlive() then return end
+        self._dropStrokeGradient.Color = ColorSequence.new(
+            theme:get("HairA"), theme:get("HairB"))
+    end))
+
+    local dropLayout = Instance.new("UIListLayout")
+    dropLayout.FillDirection = Enum.FillDirection.Vertical
+    dropLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    dropLayout.Padding = UDim.new(0, 0)
+    dropLayout.Parent = drop
+
+    self._rows = {}     -- reusable row frames, indexed 1..N
+    self._results = {}  -- current filtered entries in display order
+    self._selected = 0  -- 1-based index into _results, 0 when no selection
+
+    -- Repositions the dropdown flush under the title bar. Called on layout
+    -- change and every open.
+    self._anchor = function()
+        local titleBar = window._bar
+        local pos = titleBar.AbsolutePosition
+        local sz = titleBar.AbsoluteSize
+        local layer = root.overlayLayer
+        -- toLayerSpace converts AbsolutePosition (screen space) into Position
+        -- offset relative to the overlay layer's origin.
+        drop.Position = UDim2.fromOffset(
+            root:toLayerSpace(pos.X, pos.Y + sz.Y, layer))
+        drop.Size = UDim2.new(0, sz.X, 0, 0)   -- height set per-refresh
+    end
+
+    -- Reposition when the window moves or resizes; the window fires
+    -- _layoutChanged for both.
+    window:onLayoutChanged(function()
+        if self._open then self._anchor() end
+    end)
+
+    -- Live filter as the user types.
+    root:keep(input:GetPropertyChangedSignal("Text"):Connect(function()
+        if self._open then self:_refresh() end
     end))
 
     return self
@@ -5004,9 +5080,124 @@ function Search:_paintIcon()
     theme:bind(self._icon, "ImageColor3", key)
 end
 
--- Stub; the dropdown is added in the next task. Kept as a no-op so open/close
--- can be exercised now without a nil ref.
+-- Ensures at least `n` rows exist in the reusable pool, creating any missing
+-- ones. Rows are hidden by default; _refresh sets visibility per result.
+function Search:_ensureRows(n)
+    local theme = self._root.theme
+    for i = #self._rows + 1, n do
+        local row = Instance.new("TextButton")
+        row.Name = "result" .. i
+        row.Size = UDim2.new(1, 0, 0, ROW_HEIGHT)
+        row.BackgroundTransparency = 1
+        row.AutoButtonColor = false
+        row.Text = ""
+        row.LayoutOrder = i
+        row.ZIndex = 41
+        row.Visible = false
+        row.Parent = self._drop
+
+        local label = Instance.new("TextLabel")
+        label.Name = "label"
+        label.BackgroundTransparency = 1
+        label.Position = UDim2.fromOffset(8, 0)
+        label.Size = UDim2.new(0.55, -8, 1, 0)
+        label.Font = Enum.Font.Ubuntu
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.TextTruncate = Enum.TextTruncate.AtEnd
+        label.ZIndex = 42
+        label.Parent = row
+        theme:bind(label, "TextColor3", "TextBright")
+
+        local path = Instance.new("TextLabel")
+        path.Name = "path"
+        path.BackgroundTransparency = 1
+        path.AnchorPoint = Vector2.new(1, 0)
+        path.Position = UDim2.new(1, -8, 0, 0)
+        path.Size = UDim2.new(0.45, -8, 1, 0)
+        path.Font = Enum.Font.Ubuntu
+        path.TextSize = 12
+        path.TextXAlignment = Enum.TextXAlignment.Right
+        path.TextTruncate = Enum.TextTruncate.AtEnd
+        path.ZIndex = 42
+        path.Parent = row
+        theme:bind(path, "TextColor3", "TextDim")
+
+        self._rows[i] = { frame = row, label = label, path = path }
+    end
+end
+
+-- Rebuild the dropdown from the current input. Empty query hides the drop.
 function Search:_refresh()
+    local drop = self._drop
+    if not self._open then
+        drop.Visible = false
+        return
+    end
+
+    local query = self._input.Text or ""
+    self._results = M.rank(query, self._entries)
+    self._selected = #self._results > 0 and 1 or 0
+
+    if query == "" or #self._results == 0 then
+        -- No dropdown for empty query or zero matches. A "no results" line
+        -- reads as noise on a menu where the widget list is small.
+        drop.Visible = false
+        return
+    end
+
+    local shown = math.min(#self._results, MAX_VISIBLE_ROWS)
+    local hasMore = #self._results > MAX_VISIBLE_ROWS
+    self:_ensureRows(shown + (hasMore and 1 or 0))
+
+    for i = 1, #self._rows do
+        self._rows[i].frame.Visible = false
+    end
+
+    for i = 1, shown do
+        local entry = self._results[i]
+        local row = self._rows[i]
+        row.label.Text = entry.label
+        row.path.Text = entry.path
+        row.frame.Visible = true
+    end
+
+    -- Footer `+N more` row if the total exceeds the cap. Not clickable, not
+    -- part of _results (so selection can't land on it).
+    if hasMore then
+        local footer = self._rows[shown + 1]
+        footer.label.Text = "+" .. tostring(#self._results - shown) .. " more"
+        footer.path.Text = ""
+        footer.frame.Visible = true
+        footer.frame.AutoButtonColor = false
+    end
+
+    self._anchor()
+    -- Clamp the outer frame height to what we want to show (cap * row height
+    -- + footer row when present).
+    local visibleRows = shown + (hasMore and 1 or 0)
+    local width = drop.AbsoluteSize.X ~= 0 and drop.AbsoluteSize.X
+        or self._window._bar.AbsoluteSize.X
+    drop.Size = UDim2.new(0, width, 0,
+        math.min(visibleRows, MAX_VISIBLE_ROWS + (hasMore and 1 or 0)) * ROW_HEIGHT)
+
+    drop.Visible = true
+    self:_paintSelection()
+end
+
+function Search:_paintSelection()
+    local theme = self._root.theme
+    for i = 1, math.min(#self._rows, #self._results) do
+        local row = self._rows[i]
+        if i == self._selected then
+            row.frame.BackgroundTransparency = 0
+            theme:unbind(row.frame)
+            theme:bind(row.frame, "BackgroundColor3", "RailActive")
+        else
+            row.frame.BackgroundTransparency = 1
+            theme:unbind(row.frame)
+        end
+    end
 end
 
 return M
