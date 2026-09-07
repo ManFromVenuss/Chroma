@@ -137,6 +137,7 @@ function M.new(root, opts)
     titleText.ZIndex = 21
     titleText.Parent = bar
     theme:bind(titleText, "TextColor3", "TextBright")
+    self._titleText = titleText
 
     --== contents: everything that slides in from the left ==--
     local contents = Instance.new("Frame")

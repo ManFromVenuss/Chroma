@@ -4822,6 +4822,11 @@ __modules["core/search"] = function(require)
 
 local M = {}
 
+-- Instance-side requires. Kept below the pure section's `local M = {}` so the
+-- 5.4 harness never touches them.
+local Icons
+local lucideAssets
+
 local function scoreOne(query, label)
     local lower = string.lower(label)
     if lower == query then return 0 end
@@ -4864,11 +4869,72 @@ local Search = {}
 Search.__index = Search
 
 function M.new(root, window)
+    Icons = Icons or require("core/icons")
+    lucideAssets = lucideAssets or require("core/lucide_assets")
+
     local self = setmetatable({
         _root = root,
         _window = window,
         _entries = {},   -- flat list of {label, path, page, tab, column, row, widget}
     }, Search)
+
+    local theme = root.theme
+    local bar = window._bar
+    local titleText = window._titleText
+
+    -- 12x12 icon anchored to the right edge of the title bar. Uses ImageButton
+    -- so the click hit-region matches the visible glyph.
+    local searchIcon = Instance.new("ImageButton")
+    searchIcon.Name = "searchIcon"
+    searchIcon.AnchorPoint = Vector2.new(1, 0.5)
+    searchIcon.Position = UDim2.new(1, -8, 0.5, 0)
+    searchIcon.Size = UDim2.fromOffset(12, 12)
+    searchIcon.BackgroundTransparency = 1
+    searchIcon.AutoButtonColor = false
+    searchIcon.Image = Icons.resolveIcon("search", lucideAssets).value
+    searchIcon.ZIndex = 22
+    searchIcon.Parent = bar
+    root:keep(searchIcon)
+    theme:bind(searchIcon, "ImageColor3", "TextDim")
+    self._icon = searchIcon
+
+    -- TextBox occupies the same rectangle the title text does. Hidden until
+    -- the search is open; the title label hides in step so the two never
+    -- overlap.
+    local input = Instance.new("TextBox")
+    input.Name = "searchInput"
+    input.BackgroundTransparency = 1
+    input.Size = UDim2.new(1, -32, 1, 0)   -- leave 24px on the right for the icon plus 8px gap
+    input.Position = UDim2.fromOffset(8, 0)
+    input.Font = Enum.Font.Ubuntu
+    input.TextSize = 12
+    input.TextXAlignment = Enum.TextXAlignment.Left
+    input.PlaceholderText = "Search widgets..."
+    input.Text = ""
+    input.ClearTextOnFocus = false
+    input.Visible = false
+    input.ZIndex = 21
+    input.Parent = bar
+    root:keep(input)
+    theme:bind(input, "TextColor3", "TextBright")
+    theme:bind(input, "PlaceholderColor3", "TextDim")
+    self._input = input
+
+    self._open = false
+
+    root:keep(searchIcon.MouseEnter:Connect(function()
+        theme:unbind(searchIcon)
+        theme:bind(searchIcon, "ImageColor3", "TextBright")
+    end))
+    root:keep(searchIcon.MouseLeave:Connect(function()
+        theme:unbind(searchIcon)
+        theme:bind(searchIcon, "ImageColor3",
+            self._open and "TextBright" or "TextDim")
+    end))
+    root:keep(searchIcon.Activated:Connect(function()
+        self:toggle()
+    end))
+
     return self
 end
 
@@ -4898,6 +4964,38 @@ function Search:add(widget, row, container)
         row = row,
         widget = widget,
     })
+end
+
+function Search:open()
+    if self._open then return end
+    self._open = true
+    self._window._titleText.Visible = false
+    self._input.Visible = true
+    self._input.Text = ""
+    self._input:CaptureFocus()
+    -- Icon swaps to `x` so the same button also closes the search.
+    self._icon.Image = Icons.resolveIcon("x", lucideAssets).value
+    self:_refresh()   -- populates the dropdown; stub for now
+end
+
+function Search:close()
+    if not self._open then return end
+    self._open = false
+    self._input:ReleaseFocus()
+    self._input.Visible = false
+    self._input.Text = ""
+    self._window._titleText.Visible = true
+    self._icon.Image = Icons.resolveIcon("search", lucideAssets).value
+    self:_refresh()
+end
+
+function Search:toggle()
+    if self._open then self:close() else self:open() end
+end
+
+-- Stub; the dropdown is added in the next task. Kept as a no-op so open/close
+-- can be exercised now without a nil ref.
+function Search:_refresh()
 end
 
 return M
@@ -6329,6 +6427,7 @@ function M.new(root, opts)
     titleText.ZIndex = 21
     titleText.Parent = bar
     theme:bind(titleText, "TextColor3", "TextBright")
+    self._titleText = titleText
 
     --== contents: everything that slides in from the left ==--
     local contents = Instance.new("Frame")
