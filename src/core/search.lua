@@ -199,6 +199,30 @@ function M.new(root, window)
         if self._open then self:_refresh() end
     end))
 
+    local UserInputService = game:GetService("UserInputService")
+
+    root:keep(input.FocusLost:Connect(function(enterPressed)
+        -- Enter activates the selected result. Escape and click-outside both
+        -- close via the window-level handler (wired in Task 9).
+        if enterPressed and self._open then
+            local pick = self._results[self._selected]
+            if pick then self:_activate(pick) end
+        end
+    end))
+
+    root:keep(UserInputService.InputBegan:Connect(function(input_, gameProcessed)
+        if not self._open then return end
+        if #self._results == 0 then return end
+        if input_.KeyCode == Enum.KeyCode.Down then
+            self._selected = self._selected % #self._results + 1
+            self:_paintSelection()
+        elseif input_.KeyCode == Enum.KeyCode.Up then
+            self._selected = self._selected - 1
+            if self._selected < 1 then self._selected = #self._results end
+            self:_paintSelection()
+        end
+    end))
+
     return self
 end
 
@@ -311,8 +335,31 @@ function Search:_ensureRows(n)
         path.Parent = row
         theme:bind(path, "TextColor3", "TextDim")
 
+        root:keep(row.MouseEnter:Connect(function()
+            if not self._open then return end
+            -- Only sync to results we're actually showing; the footer "+N more"
+            -- row has no result behind it.
+            if i <= #self._results then
+                self._selected = i
+                self:_paintSelection()
+            end
+        end))
+
+        root:keep(row.Activated:Connect(function()
+            if not self._open then return end
+            if i <= #self._results then
+                self._selected = i
+                self:_activate(self._results[i])
+            end
+        end))
+
         self._rows[i] = { frame = row, label = label, path = path }
     end
+end
+
+-- Stub; Task 8 replaces this with a full page/tab switch + scroll + flash.
+-- Kept as no-op so clicks and Enter don't crash on a nil method call.
+function Search:_activate(entry)
 end
 
 -- Rebuild the dropdown from the current input. Empty query hides the drop.
